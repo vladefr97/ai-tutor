@@ -70,8 +70,6 @@ def load_course(root, upto=None):
 
     seen, out = set(), []
     for i, t in enumerate(topics, 1):
-        if upto is not None and i > upto:
-            break
         need(isinstance(t, dict), cpath, f"тема №{i} должна быть объектом")
         for key in ("id", "slug", "title"):
             need(isinstance(t.get(key), str) and t[key], cpath, f"тема №{i}: нет поля «{key}»")
@@ -79,6 +77,8 @@ def load_course(root, upto=None):
         need(t["id"] not in seen, cpath, f"дубликат id темы «{t['id']}»")
         seen.add(t["id"])
         need(t["final"] == (i == len(topics)), cpath, "итоговая тема должна быть одна и последняя")
+        if upto is not None and i > upto:
+            continue
 
         tdir = root / "topics" / f"{i:02d}-{t['slug']}"
         tpath = tdir / "tasks.json"
@@ -110,7 +110,7 @@ def main(argv):
     upto = None
     if len(argv) == 4 and argv[2] == "--upto" and argv[3].isdigit():
         upto = int(argv[3])
-    elif not 2 <= len(argv) <= 3:
+    elif not 2 <= len(argv) <= 3 or "--upto" in argv:
         print(__doc__, file=sys.stderr)
         return 2
     try:

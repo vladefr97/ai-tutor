@@ -41,7 +41,7 @@ python3 player/build.py <папка-курса> out.html
 
 ## Публикация плеера
 
-Публикует скилл `tutor` в конце работы: собирает `player.html` скриптом сборки и публикует его инструментом Artifact с возможностями `sample`, `db`, `user`. Ссылка приходит в чат один раз, когда курс готов целиком. 
+Публикует скилл `tutor` в конце работы: собирает `player.html` скриптом сборки и публикует его инструментом Artifact с возможностями `sample`, `db`, `user`. Ссылка приходит в чат один раз, когда курс готов целиком.
 
 Вручную, одной командой: `python3 player/build.py <папка-курса> player.html`, затем публикация файла инструментом Artifact с `capabilities: {sample: {}, db: {}, user: {}}`. Прогресс темы лежит в документе `data/users/<id>/progress-<topicId>`, без базы страница работает на `localStorage`.
 
@@ -52,4 +52,6 @@ python3 -m unittest discover player   # сборка и валидация
 node --test player/grade.test.js      # grade()
 ```
 
-Установка в Claude Code: `/plugin install tutor --marketplace vladefr97/tutor-app`.
+Установка в Claude Code: `/plugin marketplace add vladefr97/tutor-app`, затем `/plugin install tutor@tutor-app`.
+
+Профиль ученика копируется в папку курса при её создании: правка `learner.json` в корне проекта не меняет уже созданные курсы.

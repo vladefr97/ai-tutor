@@ -61,6 +61,15 @@ class BuildTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("tasks.json", r.stderr)
 
+    def test_upto_zero_checks_course_structure(self):
+        p = self.course / "course.json"
+        c = json.loads(p.read_text(encoding="utf-8"))
+        c["topics"][1]["id"] = c["topics"][0]["id"]
+        p.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
+        r = subprocess.run([sys.executable, str(BUILD), str(self.course), "--upto", "0"], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("course.json", r.stderr)
+
     def test_missing_cheatsheet(self):
         (self.course / T1 / "cheatsheet.md").unlink()
         self.assertFails("cheatsheet.md")

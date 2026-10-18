@@ -52,7 +52,7 @@ const COURSE = /*COURSE_JSON*/null;
 const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const inline = s => esc(s)
   .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-  .replace(/\*(.+?)\*/g, "<em>$1</em>");
+  .replace(/\*(?=\S)(.+?)(?<=\S)\*/g, "<em>$1</em>");
 
 // Минимальный markdown: заголовки, абзацы, списки, выделение, «> **Ловушка.** …»
 function renderMd(md) {
@@ -92,16 +92,23 @@ const L = COURSE.learner;
 
 // Прогресс темы: data/users/<id>/progress-<topicId>. Без db или user страница живёт на localStorage.
 let remote = null, sampleFn = null;
-const timers = {};
+const timers = {}, touched = new Set();
+function push(topicId) {
+  clearTimeout(timers[topicId]); delete timers[topicId];
+  const doc = JSON.parse(JSON.stringify({ answers: state.answers[topicId] || {}, mentor: state.mentor[topicId] || [] }));
+  remote.doc("progress-" + topicId).set(doc).catch(() => {});
+}
 function save(topicId) {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
-  if (!remote || !topicId) return;
+  if (!topicId) return;
+  touched.add(topicId);
+  if (!remote) return;
   clearTimeout(timers[topicId]);
-  timers[topicId] = setTimeout(() => {
-    const doc = JSON.parse(JSON.stringify({ answers: state.answers[topicId] || {}, mentor: state.mentor[topicId] || [] }));
-    remote.doc("progress-" + topicId).set(doc).catch(() => {});
-  }, 500);
+  timers[topicId] = setTimeout(() => push(topicId), 500);
 }
+const flush = () => remote && Object.keys(timers).forEach(push);
+addEventListener("pagehide", flush);
+document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flush());
 const use = async n => { try { return (await window.claude?.use?.(n)) || null; } catch (e) { return null; } };
 (async () => {
   const [db, user] = await Promise.all([use("db"), use("user")]);
@@ -112,11 +119,12 @@ const use = async n => { try { return (await window.claude?.use?.(n)) || null; }
       remote = db.collection("data/users/" + id);
       await Promise.all(COURSE.topics.map(async t => {
         const s = await remote.doc("progress-" + t.id).get();
-        if (!s.exists) return;
+        if (!s.exists || touched.has(t.id)) return;
         const d = s.data();
         if (d.answers) state.answers[t.id] = d.answers;
         if (d.mentor) state.mentor[t.id] = d.mentor;
       }));
+      touched.forEach(push);
     }
   } catch (e) { remote = null; }
   render();
@@ -167,8 +175,12 @@ function renderTask(topic, t) {
   return `<div class="task"><p><strong>${inline(t.q)}</strong></p>${body}</div>`;
 }
 
-let mentorOpen = false, mentorBusy = false, mentorDraft = null, mentorError = "";
-const curTopic = () => COURSE.topics.find(t => t.id === decodeURIComponent(location.hash.slice(1)));
+let mentorUnread = false, mentorOpen = false, mentorBusy = false, mentorDraft = null, mentorError = "";
+const curTopic = () => {
+  let id = location.hash.slice(1);
+  try { id = decodeURIComponent(id); } catch (e) {}
+  return COURSE.topics.find(t => t.id === id);
+};
 
 function render() {
   const app = document.getElementById("app");
@@ -218,13 +230,13 @@ async function mentorSend(topic, content, hidden) {
     const res = await sampleFn(input, { modelTier: "quick", cache: false, onText: u => { mentorDraft = u.text; renderMentor(); } });
     hist.push({ role: "assistant", content: res.text });
   } catch (e) { hist.pop(); mentorError = errText(e); }
-  mentorBusy = false; mentorDraft = null; save(topic.id); renderMentor();
+  mentorBusy = false; mentorDraft = null; if (!mentorOpen) mentorUnread = true; save(topic.id); renderMentor();
 }
 function renderMentor() {
   const topic = curTopic();
   const btn = document.getElementById("mentor-btn"), box = document.getElementById("mentor");
   btn.hidden = !(topic && sampleFn);
-  btn.textContent = "Наставник: " + L.mentor;
+  btn.textContent = "Наставник: " + L.mentor + (mentorUnread ? " ●" : "");
   box.classList.toggle("open", !!(topic && sampleFn && mentorOpen));
   if (!topic) return;
   document.getElementById("mentor-name").textContent = L.mentor;
@@ -238,12 +250,12 @@ function renderMentor() {
   el.scrollTop = el.scrollHeight;
 }
 function autoHint(topic, task, r) {
-  mentorOpen = true;
   mentorSend(topic, `Ученик ответил на задание «${task.q}» так: «${r.text || r.last}». Это не засчитано. ` +
     `Подскажи, где ошибка, наводящим вопросом или намёком, не называя правильный ответ. Не здоровайся заново.`, true);
 }
 
 async function checkOpen(topic, task, r) {
+  if (!(r.text || "").trim()) { r.note = "Сначала напишите ответ."; render(); return; }
   const key = topic.id + "/" + task.id;
   busy.add(key); r.note = ""; render();
   try {
@@ -252,7 +264,7 @@ async function checkOpen(topic, task, r) {
       `Верни только JSON {"ok": true или false, "comment": "1–2 предложения ученику на «${L.address}», в тоне: ${L.tone}"}. ` +
       `Если не засчитал, скажи, чего не хватает, но не пересказывай полный правильный ответ.`,
       { modelTier: "quick", cache: false });
-    r.tries++; r.status = v.ok ? "ok" : "fail"; r.note = String(v.comment || "");
+    r.tries++; r.status = v.ok === true ? "ok" : "fail"; r.note = String(v.comment || "");
   } catch (e) { r.note = errText(e); }
   busy.delete(key); save(topic.id); render();
   if (r.status === "fail") autoHint(topic, task, r);
@@ -262,7 +274,7 @@ document.addEventListener("click", e => {
   const b = e.target.closest("button[data-action]");
   if (!b) return;
   const a = b.dataset.action;
-  if (a === "mentor-toggle" || a === "mentor-close") { mentorOpen = a === "mentor-toggle" ? !mentorOpen : false; renderMentor(); return; }
+  if (a === "mentor-toggle" || a === "mentor-close") { mentorOpen = a === "mentor-toggle" ? !mentorOpen : false; if (mentorOpen) mentorUnread = false; renderMentor(); return; }
   const topic = COURSE.topics.find(t => t.id === b.dataset.topic);
   const task = topic.tasks.find(t => t.id === b.dataset.task);
   const r = rec(topic.id, task.id), i = +b.dataset.i;
