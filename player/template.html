@@ -23,7 +23,7 @@ header h1 { font-size:1.2rem; margin:0; }
 .task { border-top:1px solid var(--line); padding:12px 0; }
 .task:first-of-type { border-top:0; }
 .trap { background:var(--trap-bg); border-left:4px solid var(--trap-line); margin:16px 0; padding:4px 16px; border-radius:4px; }
-ul.opts, ol.items { padding-left:1.4em; }
+.opts { display:grid; gap:8px; } ol.items { padding-left:1.4em; } button { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); cursor:pointer; text-align:left; } button:disabled { opacity:.5; cursor:default; } textarea { width:100%; font:inherit; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px; } .ok { color:#2a8a4a; } .fail { color:#c0392b; }
 </style>
 </head>
 <body>
@@ -65,11 +65,46 @@ function renderMd(md) {
   return out.join("\n");
 }
 
-function renderTask(t) {
+/*GRADE_JS*/
+
+// ---- состояние: answers[topicId][taskId] = {status: ok|fail|skip, tries, text?, order?}
+const KEY = "tutor:" + COURSE.title;
+let state = { answers: {} };
+try { state = JSON.parse(localStorage.getItem(KEY)) || state; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+const rec = (tp, tk) => ((state.answers[tp] ||= {})[tk] ||= { tries: 0 });
+const done = topic => topic.tasks.every(t => ["ok", "skip"].includes(rec(topic.id, t.id).status));
+
+function shuffled(items) {
+  const a = items.slice();
+  do { a.sort(() => Math.random() - 0.5); } while (a.length > 1 && a.every((x, i) => x === items[i]));
+  return a;
+}
+
+function renderTask(topic, t) {
+  const r = rec(topic.id, t.id);
+  const d = `data-topic="${esc(topic.id)}" data-task="${esc(t.id)}"`;
   let body = "";
-  if (t.kind === "quiz") body = "<ul class='opts'>" + t.opts.map(o => `<li>${inline(o)}</li>`).join("") + "</ul>";
-  else if (t.kind === "order") body = "<ol class='items'>" + t.items.map(o => `<li>${inline(o)}</li>`).join("") + "</ol>";
-  else body = "<p class='muted'>Открытый вопрос: ответ пишется текстом.</p>";
+  if (r.status === "skip") {
+    body = `<p class="muted">Пропущено.</p><button data-action="unskip" ${d}>Вернуться к заданию</button>`;
+  } else {
+    if (t.kind === "quiz") {
+      body = "<div class='opts'>" + t.opts.map((o, i) =>
+        `<button data-action="pick" data-i="${i}" ${d} ${r.status === "ok" ? "disabled" : ""}>${inline(o)}</button>`).join("") + "</div>";
+    } else if (t.kind === "order") {
+      const cur = r.order || (r.order = shuffled(t.items));
+      body = "<ol class='items'>" + cur.map((o, i) => `<li>${inline(o)} ` +
+        `<button data-action="up" data-i="${i}" ${d} aria-label="Выше" ${i === 0 || r.status === "ok" ? "disabled" : ""}>↑</button>` +
+        `<button data-action="down" data-i="${i}" ${d} aria-label="Ниже" ${i === cur.length - 1 || r.status === "ok" ? "disabled" : ""}>↓</button></li>`).join("") + "</ol>" +
+        (r.status === "ok" ? "" : `<button data-action="check" ${d}>Проверить порядок</button>`);
+    } else {
+      body = `<textarea data-action="text" ${d} rows="4" placeholder="Ваш ответ">${esc(r.text || "")}</textarea>` +
+        "<p class='muted'>Проверка открытых ответов появится позже.</p>";
+    }
+    if (r.status === "ok") body += `<p class="ok">Засчитано. ${inline(t.why || "")}</p>`;
+    else if (r.status === "fail") body += `<p class="fail">Не засчитано, попробуйте ещё раз.</p>`;
+    if (r.status !== "ok") body += ` <button data-action="skip" ${d}>Пропустить</button>`;
+  }
   return `<div class="task"><p><strong>${inline(t.q)}</strong></p>${body}</div>`;
 }
 
@@ -79,15 +114,36 @@ function render() {
   const topic = COURSE.topics.find(t => t.id === id);
   document.title = topic ? topic.title : COURSE.title;
   if (!topic) {
-    app.innerHTML = `<h1>${esc(COURSE.title)}</h1><p class="muted">${esc(COURSE.brief)}</p><ul class="topic-list">` +
+    const n = COURSE.topics.filter(done).length;
+    app.innerHTML = `<h1>${esc(COURSE.title)}</h1><p class="muted">${esc(COURSE.brief)}</p>` +
+      `<p><strong>Пройдено тем: ${n} из ${COURSE.topics.length}</strong></p><ul class="topic-list">` +
       COURSE.topics.map((t, i) => `<li><a href="#${encodeURIComponent(t.id)}"><strong>${i + 1}. ${esc(t.title)}</strong>` +
-        `<div class="muted">${t.final ? "Итоговое задание" : "Шпаргалка"} · заданий: ${t.tasks.length}</div></a></li>`).join("") + "</ul>";
+        `<div class="muted">${t.final ? "Итоговое задание" : "Шпаргалка"} · заданий: ${t.tasks.length}${done(t) ? " · ✓ пройдена" : ""}</div></a></li>`).join("") + "</ul>";
     return;
   }
   const cheat = topic.cheatsheet ? `<section class="col">${renderMd(topic.cheatsheet)}</section>` : "";
   app.innerHTML = `<p><a href="#">← Все темы</a></p><div class="layout">${cheat}` +
-    `<section class="col"><h2>Задания</h2>${topic.tasks.map(renderTask).join("")}</section></div>`;
+    `<section class="col"><h2>Задания${done(topic) ? " · ✓ тема пройдена" : ""}</h2>${topic.tasks.map(t => renderTask(topic, t)).join("")}</section></div>`;
 }
+
+document.addEventListener("click", e => {
+  const b = e.target.closest("button[data-action]");
+  if (!b) return;
+  const topic = COURSE.topics.find(t => t.id === b.dataset.topic);
+  const task = topic.tasks.find(t => t.id === b.dataset.task);
+  const r = rec(topic.id, task.id), i = +b.dataset.i;
+  const a = b.dataset.action;
+  if (a === "pick") { r.tries++; r.status = grade(task, i) ? "ok" : "fail"; }
+  else if (a === "up" || a === "down") { const j = a === "up" ? i - 1 : i + 1; [r.order[i], r.order[j]] = [r.order[j], r.order[i]]; r.status = undefined; }
+  else if (a === "check") { r.tries++; r.status = grade(task, r.order) ? "ok" : "fail"; }
+  else if (a === "skip") r.status = "skip";
+  else if (a === "unskip") r.status = undefined;
+  save(); render();
+});
+document.addEventListener("input", e => {
+  const el = e.target.closest("textarea[data-action=text]");
+  if (el) { rec(el.dataset.topic, el.dataset.task).text = el.value; save(); }
+});
 addEventListener("hashchange", render);
 render();
 </script>

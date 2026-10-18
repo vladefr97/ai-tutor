@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 TEMPLATE = Path(__file__).with_name("template.html")
+GRADE_JS = Path(__file__).with_name("grade.js")
 LEARNER_KEYS = ["name", "address", "tone", "emoji", "format", "mentor", "wishes"]
 KINDS = {"quiz", "order", "open"}
 
@@ -98,7 +99,8 @@ def load_course(root):
 
 def build(root):
     data = json.dumps(load_course(root), ensure_ascii=False).replace("</", "<\\/")
-    return TEMPLATE.read_text(encoding="utf-8").replace("/*COURSE_JSON*/null", data)
+    html = TEMPLATE.read_text(encoding="utf-8").replace("/*GRADE_JS*/", GRADE_JS.read_text(encoding="utf-8"))
+    return html.replace("/*COURSE_JSON*/null", data)
 
 
 def main(argv):
