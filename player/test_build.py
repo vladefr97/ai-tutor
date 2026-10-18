@@ -53,6 +53,14 @@ class BuildTest(unittest.TestCase):
         self.assertIn("Продукт — это решение чьей-то проблемы", html)
         self.assertNotIn("/*COURSE_JSON*/", html)
 
+    def test_upto_skips_unwritten_topics(self):
+        shutil.rmtree(self.course / "topics")
+        r = subprocess.run([sys.executable, str(BUILD), str(self.course), "--upto", "0"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = subprocess.run([sys.executable, str(BUILD), str(self.course), "--upto", "1"], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("tasks.json", r.stderr)
+
     def test_missing_cheatsheet(self):
         (self.course / T1 / "cheatsheet.md").unlink()
         self.assertFails("cheatsheet.md")

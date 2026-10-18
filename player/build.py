@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Собирает HTML-плеер из папки курса: build.py <папка-курса> [out.html]."""
+"""Собирает HTML-плеер из папки курса: build.py <папка-курса> [out.html].
+Промежуточная проверка без сборки: build.py <папка-курса> --upto N (проверить course.json, learner.json и первые N тем; 0 — только их)."""
 import json
 import sys
 from pathlib import Path
@@ -51,7 +52,7 @@ def check_task(task, path):
         need(isinstance(task.get("rubric"), str) and task["rubric"].strip(), path, f"задание {tid}: нет «rubric»")
 
 
-def load_course(root):
+def load_course(root, upto=None):
     root = Path(root)
     course = load_json(root / "course.json")
     cpath = root / "course.json"
@@ -69,6 +70,8 @@ def load_course(root):
 
     seen, out = set(), []
     for i, t in enumerate(topics, 1):
+        if upto is not None and i > upto:
+            break
         need(isinstance(t, dict), cpath, f"тема №{i} должна быть объектом")
         for key in ("id", "slug", "title"):
             need(isinstance(t.get(key), str) and t[key], cpath, f"тема №{i}: нет поля «{key}»")
@@ -104,10 +107,17 @@ def build(root):
 
 
 def main(argv):
-    if not 2 <= len(argv) <= 3:
+    upto = None
+    if len(argv) == 4 and argv[2] == "--upto" and argv[3].isdigit():
+        upto = int(argv[3])
+    elif not 2 <= len(argv) <= 3:
         print(__doc__, file=sys.stderr)
         return 2
     try:
+        if upto is not None:
+            load_course(argv[1], upto)
+            print(f"Проверено тем: {upto}")
+            return 0
         html = build(argv[1])
     except BuildError as e:
         print(f"Ошибка: {e}", file=sys.stderr)

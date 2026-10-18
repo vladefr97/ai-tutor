@@ -24,11 +24,28 @@ header h1 { font-size:1.2rem; margin:0; }
 .task:first-of-type { border-top:0; }
 .trap { background:var(--trap-bg); border-left:4px solid var(--trap-line); margin:16px 0; padding:4px 16px; border-radius:4px; }
 .opts { display:grid; gap:8px; } ol.items { padding-left:1.4em; } button { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); cursor:pointer; text-align:left; } button:disabled { opacity:.5; cursor:default; } textarea { width:100%; font:inherit; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px; } .ok { color:#2a8a4a; } .fail { color:#c0392b; }
+
+.drawer { position:fixed; top:0; right:0; bottom:0; width:min(400px,100vw); background:var(--card); border-left:1px solid var(--line); display:none; flex-direction:column; z-index:10; }
+.drawer.open { display:flex; }
+.drawer header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); max-width:none; margin:0; }
+#msgs { flex:1; overflow-y:auto; padding:12px 16px; }
+.msg { margin:8px 0; padding:8px 12px; border-radius:10px; background:var(--bg); white-space:pre-wrap; }
+.msg.user { background:var(--accent); color:#fff; margin-left:2rem; }
+.drawer form { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); }
+.drawer input { flex:1; min-width:0; font:inherit; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); }
+#mentor-btn { position:fixed; right:16px; bottom:16px; z-index:5; }
+.err { color:#c0392b; }
 </style>
 </head>
 <body>
 <header><h1><a href="#" id="home">Плеер курса</a></h1></header>
 <main id="app"></main>
+<button id="mentor-btn" data-action="mentor-toggle" hidden></button>
+<aside id="mentor" class="drawer" aria-label="Наставник">
+  <header><strong id="mentor-name"></strong><button data-action="mentor-close" aria-label="Закрыть">✕</button></header>
+  <div id="msgs"></div>
+  <form id="mentor-form"><input id="mentor-input" placeholder="Спросите по теме" autocomplete="off"><button id="mentor-send">Отправить</button></form>
+</aside>
 <script>
 const COURSE = /*COURSE_JSON*/null;
 
@@ -67,13 +84,50 @@ function renderMd(md) {
 
 /*GRADE_JS*/
 
-// ---- состояние: answers[topicId][taskId] = {status: ok|fail|skip, tries, text?, order?}
+// ---- состояние: answers[topicId][taskId] = {status: ok|fail|skip, tries, text?, note?, order?, last?}; mentor[topicId] = [{role, content, hidden?}]
 const KEY = "tutor:" + COURSE.title;
-let state = { answers: {} };
-try { state = JSON.parse(localStorage.getItem(KEY)) || state; } catch (e) {}
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+let state = { answers: {}, mentor: {} };
+try { state = { ...state, ...JSON.parse(localStorage.getItem(KEY)) }; } catch (e) {}
+const L = COURSE.learner;
+
+// Прогресс темы: data/users/<id>/progress-<topicId>. Без db или user страница живёт на localStorage.
+let remote = null, sampleFn = null;
+const timers = {};
+function save(topicId) {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+  if (!remote || !topicId) return;
+  clearTimeout(timers[topicId]);
+  timers[topicId] = setTimeout(() => {
+    const doc = JSON.parse(JSON.stringify({ answers: state.answers[topicId] || {}, mentor: state.mentor[topicId] || [] }));
+    remote.doc("progress-" + topicId).set(doc).catch(() => {});
+  }, 500);
+}
+const use = async n => { try { return (await window.claude?.use?.(n)) || null; } catch (e) { return null; } };
+(async () => {
+  const [db, user] = await Promise.all([use("db"), use("user")]);
+  sampleFn = await use("sample");
+  try {
+    const id = db && user && await user.id();
+    if (id) {
+      remote = db.collection("data/users/" + id);
+      await Promise.all(COURSE.topics.map(async t => {
+        const s = await remote.doc("progress-" + t.id).get();
+        if (!s.exists) return;
+        const d = s.data();
+        if (d.answers) state.answers[t.id] = d.answers;
+        if (d.mentor) state.mentor[t.id] = d.mentor;
+      }));
+    }
+  } catch (e) { remote = null; }
+  render();
+})();
+
 const rec = (tp, tk) => ((state.answers[tp] ||= {})[tk] ||= { tries: 0 });
 const done = topic => topic.tasks.every(t => ["ok", "skip"].includes(rec(topic.id, t.id).status));
+const busy = new Set();
+const errText = e => e && e.code === "not_granted"
+  ? "Вы не разрешили странице обращаться к Claude. Разрешение можно выдать в меню разрешений артефакта."
+  : "Не получилось связаться с Claude. Попробуйте позже.";
 
 function shuffled(items) {
   const a = items.slice();
@@ -84,6 +138,7 @@ function shuffled(items) {
 function renderTask(topic, t) {
   const r = rec(topic.id, t.id);
   const d = `data-topic="${esc(topic.id)}" data-task="${esc(t.id)}"`;
+  const wait = busy.has(topic.id + "/" + t.id);
   let body = "";
   if (r.status === "skip") {
     body = `<p class="muted">Пропущено.</p><button data-action="unskip" ${d}>Вернуться к заданию</button>`;
@@ -98,20 +153,26 @@ function renderTask(topic, t) {
         `<button data-action="down" data-i="${i}" ${d} aria-label="Ниже" ${i === cur.length - 1 || r.status === "ok" ? "disabled" : ""}>↓</button></li>`).join("") + "</ol>" +
         (r.status === "ok" ? "" : `<button data-action="check" ${d}>Проверить порядок</button>`);
     } else {
-      body = `<textarea data-action="text" ${d} rows="4" placeholder="Ваш ответ">${esc(r.text || "")}</textarea>` +
-        "<p class='muted'>Проверка открытых ответов появится позже.</p>";
+      body = `<textarea data-action="text" ${d} rows="4" placeholder="Ваш ответ" ${r.status === "ok" ? "disabled" : ""}>${esc(r.text || "")}</textarea>` +
+        (r.status === "ok" ? "" : sampleFn
+          ? `<button data-action="check-open" ${d} ${wait ? "disabled" : ""}>${wait ? "Проверяю…" : "Проверить"}</button>`
+          : "<p class='muted'>Проверка ответа недоступна: нет доступа к Claude.</p>");
     }
-    if (r.status === "ok") body += `<p class="ok">Засчитано. ${inline(t.why || "")}</p>`;
-    else if (r.status === "fail") body += `<p class="fail">Не засчитано, попробуйте ещё раз.</p>`;
+    if (r.status === "ok") body += `<p class="ok">Засчитано. ${inline(t.kind === "open" ? r.note || "" : t.why || "")}</p>`;
+    else if (r.status === "fail") body += `<p class="fail">Не засчитано.${t.kind === "open" && r.note ? " " + inline(r.note) : " Попробуйте ещё раз."}</p>`;
+    else if (r.note) body += `<p class="err">${esc(r.note)}</p>`;
+    if (r.status === "fail" && r.tries >= 2 && sampleFn) body += ` <button data-action="reveal" ${d}>Показать разбор</button>`;
     if (r.status !== "ok") body += ` <button data-action="skip" ${d}>Пропустить</button>`;
   }
   return `<div class="task"><p><strong>${inline(t.q)}</strong></p>${body}</div>`;
 }
 
+let mentorOpen = false, mentorBusy = false, mentorDraft = null, mentorError = "";
+const curTopic = () => COURSE.topics.find(t => t.id === decodeURIComponent(location.hash.slice(1)));
+
 function render() {
   const app = document.getElementById("app");
-  const id = decodeURIComponent(location.hash.slice(1));
-  const topic = COURSE.topics.find(t => t.id === id);
+  const topic = curTopic();
   document.title = topic ? topic.title : COURSE.title;
   if (!topic) {
     const n = COURSE.topics.filter(done).length;
@@ -119,30 +180,110 @@ function render() {
       `<p><strong>Пройдено тем: ${n} из ${COURSE.topics.length}</strong></p><ul class="topic-list">` +
       COURSE.topics.map((t, i) => `<li><a href="#${encodeURIComponent(t.id)}"><strong>${i + 1}. ${esc(t.title)}</strong>` +
         `<div class="muted">${t.final ? "Итоговое задание" : "Шпаргалка"} · заданий: ${t.tasks.length}${done(t) ? " · ✓ пройдена" : ""}</div></a></li>`).join("") + "</ul>";
-    return;
+  } else {
+    const cheat = topic.cheatsheet ? `<section class="col">${renderMd(topic.cheatsheet)}</section>` : "";
+    app.innerHTML = `<p><a href="#">← Все темы</a></p><div class="layout">${cheat}` +
+      `<section class="col"><h2>Задания${done(topic) ? " · ✓ тема пройдена" : ""}</h2>${topic.tasks.map(t => renderTask(topic, t)).join("")}</section></div>`;
   }
-  const cheat = topic.cheatsheet ? `<section class="col">${renderMd(topic.cheatsheet)}</section>` : "";
-  app.innerHTML = `<p><a href="#">← Все темы</a></p><div class="layout">${cheat}` +
-    `<section class="col"><h2>Задания${done(topic) ? " · ✓ тема пройдена" : ""}</h2>${topic.tasks.map(t => renderTask(topic, t)).join("")}</section></div>`;
+  renderMentor();
+}
+
+// ---- Наставник
+function secret(t) {
+  if (t.kind === "quiz") return `верный вариант: ${t.opts[t.answer]}. Объяснение: ${t.why}`;
+  if (t.kind === "order") return `верный порядок: ${t.items.join(" → ")}. Объяснение: ${t.why}`;
+  return `критерий проверки: ${t.rubric}`;
+}
+function mentorInstruction(topic) {
+  const tasks = topic.tasks.map(t => {
+    const r = rec(topic.id, t.id);
+    return `- ${t.q} (${t.kind}); статус: ${r.status || "не решено"}, попыток: ${r.tries}` +
+      (r.text ? `; ответ ученика: ${r.text}` : r.last ? `; последний ответ ученика: ${r.last}` : "") +
+      `\n  [скрыто от ученика] ${secret(t)}`;
+  }).join("\n");
+  return `Ты — Наставник по имени ${L.mentor}, помогаешь ученику по теме «${topic.title}» курса «${COURSE.title}». ` +
+    `Ученика зовут ${L.name}, обращайся на «${L.address}». Тон: ${L.tone}. Смайлики: ${L.emoji}. Формат объяснений: ${L.format}. Пожелания: ${L.wishes}.\n\n` +
+    `Правила: отвечай по-русски, 2–5 предложений. Не называй правильный ответ задания, пока ученик сам не попросил разбор: задавай наводящие вопросы и давай намёки. ` +
+    `Когда ученик просит разбор, объясни правильный ответ и почему он такой. Не выходи за тему.\n\n` +
+    `Шпаргалка темы:\n${topic.cheatsheet || "(у темы нет шпаргалки)"}\n\nЗадания и состояние ученика:\n${tasks}`;
+}
+async function mentorSend(topic, content, hidden) {
+  if (!sampleFn || mentorBusy) return;
+  const hist = (state.mentor[topic.id] ||= []);
+  hist.push({ role: "user", content, hidden: !!hidden });
+  mentorBusy = true; mentorDraft = ""; mentorError = ""; renderMentor();
+  try {
+    const input = [{ role: "user", content: mentorInstruction(topic) }, { role: "assistant", content: "Понял, помогу по этим правилам." },
+      ...hist.map(({ role, content }) => ({ role, content }))];
+    const res = await sampleFn(input, { modelTier: "quick", cache: false, onText: u => { mentorDraft = u.text; renderMentor(); } });
+    hist.push({ role: "assistant", content: res.text });
+  } catch (e) { hist.pop(); mentorError = errText(e); }
+  mentorBusy = false; mentorDraft = null; save(topic.id); renderMentor();
+}
+function renderMentor() {
+  const topic = curTopic();
+  const btn = document.getElementById("mentor-btn"), box = document.getElementById("mentor");
+  btn.hidden = !(topic && sampleFn);
+  btn.textContent = "Наставник: " + L.mentor;
+  box.classList.toggle("open", !!(topic && sampleFn && mentorOpen));
+  if (!topic) return;
+  document.getElementById("mentor-name").textContent = L.mentor;
+  document.getElementById("mentor-send").disabled = mentorBusy;
+  const msgs = (state.mentor[topic.id] || []).filter(m => !m.hidden);
+  const fmt = (c, cls) => `<div class="msg ${cls}">${esc(c)}</div>`;
+  const el = document.getElementById("msgs");
+  el.innerHTML = msgs.map(m => fmt(m.content, m.role)).join("") +
+    (mentorBusy ? fmt(mentorDraft || "Думаю…", "assistant") : "") +
+    (mentorError ? `<div class="msg err">${esc(mentorError)}</div>` : "");
+  el.scrollTop = el.scrollHeight;
+}
+function autoHint(topic, task, r) {
+  mentorOpen = true;
+  mentorSend(topic, `Ученик ответил на задание «${task.q}» так: «${r.text || r.last}». Это не засчитано. ` +
+    `Подскажи, где ошибка, наводящим вопросом или намёком, не называя правильный ответ. Не здоровайся заново.`, true);
+}
+
+async function checkOpen(topic, task, r) {
+  const key = topic.id + "/" + task.id;
+  busy.add(key); r.note = ""; render();
+  try {
+    const v = await sampleFn.json(
+      `Ты проверяешь ответ ученика на открытый вопрос по критерию.\nВопрос: ${task.q}\nКритерий: ${task.rubric}\nОтвет ученика: ${r.text || "(пусто)"}\n\n` +
+      `Верни только JSON {"ok": true или false, "comment": "1–2 предложения ученику на «${L.address}», в тоне: ${L.tone}"}. ` +
+      `Если не засчитал, скажи, чего не хватает, но не пересказывай полный правильный ответ.`,
+      { modelTier: "quick", cache: false });
+    r.tries++; r.status = v.ok ? "ok" : "fail"; r.note = String(v.comment || "");
+  } catch (e) { r.note = errText(e); }
+  busy.delete(key); save(topic.id); render();
+  if (r.status === "fail") autoHint(topic, task, r);
 }
 
 document.addEventListener("click", e => {
   const b = e.target.closest("button[data-action]");
   if (!b) return;
+  const a = b.dataset.action;
+  if (a === "mentor-toggle" || a === "mentor-close") { mentorOpen = a === "mentor-toggle" ? !mentorOpen : false; renderMentor(); return; }
   const topic = COURSE.topics.find(t => t.id === b.dataset.topic);
   const task = topic.tasks.find(t => t.id === b.dataset.task);
   const r = rec(topic.id, task.id), i = +b.dataset.i;
-  const a = b.dataset.action;
-  if (a === "pick") { r.tries++; r.status = grade(task, i) ? "ok" : "fail"; }
+  if (a === "pick") { r.tries++; r.last = task.opts[i]; r.status = grade(task, i) ? "ok" : "fail"; }
   else if (a === "up" || a === "down") { const j = a === "up" ? i - 1 : i + 1; [r.order[i], r.order[j]] = [r.order[j], r.order[i]]; r.status = undefined; }
-  else if (a === "check") { r.tries++; r.status = grade(task, r.order) ? "ok" : "fail"; }
+  else if (a === "check") { r.tries++; r.last = r.order.join(" → "); r.status = grade(task, r.order) ? "ok" : "fail"; }
+  else if (a === "check-open") { checkOpen(topic, task, r); return; }
+  else if (a === "reveal") { mentorOpen = true; mentorSend(topic, `Покажи разбор задания «${task.q}»: объясни правильный ответ.`); render(); return; }
   else if (a === "skip") r.status = "skip";
   else if (a === "unskip") r.status = undefined;
-  save(); render();
+  save(topic.id); render();
+  if (r.status === "fail" && sampleFn) autoHint(topic, task, r);
 });
 document.addEventListener("input", e => {
   const el = e.target.closest("textarea[data-action=text]");
-  if (el) { rec(el.dataset.topic, el.dataset.task).text = el.value; save(); }
+  if (el) { rec(el.dataset.topic, el.dataset.task).text = el.value; save(el.dataset.topic); }
+});
+document.getElementById("mentor-form").addEventListener("submit", e => {
+  e.preventDefault();
+  const inp = document.getElementById("mentor-input"), topic = curTopic();
+  if (inp.value.trim() && topic) { mentorSend(topic, inp.value.trim()); inp.value = ""; }
 });
 addEventListener("hashchange", render);
 render();
