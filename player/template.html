@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Плеер курса</title>
+<style>
+:root { color-scheme: light dark; --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --card:#fff; --line:#e2e2dc; --accent:#2f6fdb; --trap-bg:#fff4e0; --trap-line:#e0a030; }
+@media (prefers-color-scheme: dark) { :root { --bg:#16171a; --fg:#e8e8e4; --muted:#9a9a94; --card:#1f2024; --line:#33343a; --accent:#6ea0f5; --trap-bg:#2d2412; --trap-line:#b8862b; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
+a { color:var(--accent); }
+header, main { max-width:1100px; margin:0 auto; padding:16px; }
+header h1 { font-size:1.2rem; margin:0; }
+.topic-list { list-style:none; padding:0; display:grid; gap:12px; }
+.topic-list a { display:block; padding:16px; background:var(--card); border:1px solid var(--line); border-radius:10px; color:inherit; text-decoration:none; }
+.topic-list a:hover { border-color:var(--accent); }
+.muted { color:var(--muted); font-size:.9rem; }
+.layout { display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
+@media (max-width:760px) { .layout { grid-template-columns:1fr; } }
+.col { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 20px 20px; min-width:0; }
+.col h2:first-child { margin-top:12px; }
+.task { border-top:1px solid var(--line); padding:12px 0; }
+.task:first-of-type { border-top:0; }
+.trap { background:var(--trap-bg); border-left:4px solid var(--trap-line); margin:16px 0; padding:4px 16px; border-radius:4px; }
+ul.opts, ol.items { padding-left:1.4em; }
+</style>
+</head>
+<body>
+<header><h1><a href="#" id="home">Плеер курса</a></h1></header>
+<main id="app"></main>
+<script>
+const COURSE = /*COURSE_JSON*/null;
+
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const inline = s => esc(s)
+  .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+  .replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+// Минимальный markdown: заголовки, абзацы, списки, выделение, «> **Ловушка.** …»
+function renderMd(md) {
+  const out = [];
+  let para = [], list = null, quote = [];
+  const flush = () => {
+    if (para.length) out.push("<p>" + inline(para.join(" ")) + "</p>");
+    if (list) out.push(`<${list.tag}>` + list.items.map(i => "<li>" + inline(i) + "</li>").join("") + `</${list.tag}>`);
+    if (quote.length) {
+      const text = quote.join(" ");
+      out.push(`<blockquote class="${/^\*\*Ловушка/.test(text) ? "trap" : ""}"><p>${inline(text)}</p></blockquote>`);
+    }
+    para = []; list = null; quote = [];
+  };
+  for (const line of md.split("\n")) {
+    let m;
+    if (!line.trim()) flush();
+    else if ((m = line.match(/^(#{1,3})\s+(.*)/))) { flush(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); }
+    else if ((m = line.match(/^>\s?(.*)/))) { if (!quote.length) flush(); quote.push(m[1]); }
+    else if ((m = line.match(/^\s*(?:([-*])|\d+\.)\s+(.*)/))) {
+      const tag = m[1] ? "ul" : "ol";
+      if (!list || list.tag !== tag) { flush(); list = { tag, items: [] }; }
+      list.items.push(m[2]);
+    } else { if (list || quote.length) flush(); para.push(line.trim()); }
+  }
+  flush();
+  return out.join("\n");
+}
+
+function renderTask(t) {
+  let body = "";
+  if (t.kind === "quiz") body = "<ul class='opts'>" + t.opts.map(o => `<li>${inline(o)}</li>`).join("") + "</ul>";
+  else if (t.kind === "order") body = "<ol class='items'>" + t.items.map(o => `<li>${inline(o)}</li>`).join("") + "</ol>";
+  else body = "<p class='muted'>Открытый вопрос: ответ пишется текстом.</p>";
+  return `<div class="task"><p><strong>${inline(t.q)}</strong></p>${body}</div>`;
+}
+
+function render() {
+  const app = document.getElementById("app");
+  const id = decodeURIComponent(location.hash.slice(1));
+  const topic = COURSE.topics.find(t => t.id === id);
+  document.title = topic ? topic.title : COURSE.title;
+  if (!topic) {
+    app.innerHTML = `<h1>${esc(COURSE.title)}</h1><p class="muted">${esc(COURSE.brief)}</p><ul class="topic-list">` +
+      COURSE.topics.map((t, i) => `<li><a href="#${encodeURIComponent(t.id)}"><strong>${i + 1}. ${esc(t.title)}</strong>` +
+        `<div class="muted">${t.final ? "Итоговое задание" : "Шпаргалка"} · заданий: ${t.tasks.length}</div></a></li>`).join("") + "</ul>";
+    return;
+  }
+  const cheat = topic.cheatsheet ? `<section class="col">${renderMd(topic.cheatsheet)}</section>` : "";
+  app.innerHTML = `<p><a href="#">← Все темы</a></p><div class="layout">${cheat}` +
+    `<section class="col"><h2>Задания</h2>${topic.tasks.map(renderTask).join("")}</section></div>`;
+}
+addEventListener("hashchange", render);
+render();
+</script>
+</body>
+</html>
