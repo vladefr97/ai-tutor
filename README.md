@@ -55,3 +55,7 @@ node --test player/grade.test.js      # grade()
 Установка в Claude Code: `/plugin marketplace add vladefr97/tutor-app`, затем `/plugin install tutor@tutor-app`.
 
 Профиль ученика копируется в папку курса при её создании: правка `learner.json` в корне проекта не меняет уже созданные курсы.
+
+## Известные ограничения проверки
+
+- В headless-режиме `claude -p` у скилла нет инструмента Artifact: курс собирается до `player.html`, публикация не выполняется, скилл сообщает путь к файлу. Публикация проверяется только в Claude Desktop → Code.
