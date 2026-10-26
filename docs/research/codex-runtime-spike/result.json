@@ -1,0 +1,23 @@
+{
+  "runtime": "tutor-codex-spike:0.155.1",
+  "auth": "chatgpt",
+  "planning_thread": "01a1732c-066e-7363-ba45-788bc85a10da",
+  "generation_thread": "01a1732c-37b3-7613-8eba-75b27209a1f1",
+  "planning_model": "gpt-6-astra",
+  "generation_model": "gpt-6-astra",
+  "checks": {
+    "real_interview": true,
+    "real_plan": true,
+    "distinct_threads": true,
+    "separate_containers_workspaces_and_homes": true,
+    "only_approved_plan_transferred": true,
+    "lesson_file_created": true,
+    "private_marker_not_in_artifact": true
+  },
+  "limitations": [
+    "Default models used; stronger/cheaper model routing not evaluated.",
+    "Synthetic prompts; actual tutoring skills and grading quality not evaluated.",
+    "No Go adapter, GitHub integration or product UI tested.",
+    "Marker check is a smoke test, not proof of complete information isolation."
+  ]
+}

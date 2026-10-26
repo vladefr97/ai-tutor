@@ -1,5 +1,9 @@
 # tutor-app
 
+Текущий проект — отдельный сайт **ai-tutor** на React и Go. Согласованные требования: [ADR-0002](docs/adr/0002-otdelnyj-sajt-dlya-poc.md), [критерии приёмки](docs/poc-acceptance.md), [план реализации](docs/superpowers/plans/2026-10-25-ai-tutor-poc.md). Новое приложение ещё не реализовано; ниже сохранено описание прежнего Claude-прототипа.
+
+## Прежний Claude-прототип
+
 Плагин Claude: по запросу «хочу освоить …» проводит интервью, формирует бриф, пишет курс (темы со шпаргалками и заданиями) и публикует плеер, в котором ученик проходит курс вместе с Наставником. Решение об архитектуре: `docs/adr/0001-plagin-claude-vmesto-svoego-servisa.md`. Термины: `GLOSSARY.md`.
 
 Репозиторий одновременно плагин (`.claude-plugin/plugin.json`) и marketplace (`.claude-plugin/marketplace.json`).
