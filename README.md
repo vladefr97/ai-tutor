@@ -1,6 +1,34 @@
 # tutor-app
 
-Текущий проект — отдельный сайт **ai-tutor** на React и Go. Согласованные требования: [ADR-0002](docs/adr/0002-otdelnyj-sajt-dlya-poc.md), [критерии приёмки](docs/poc-acceptance.md), [план реализации](docs/superpowers/plans/2026-10-25-ai-tutor-poc.md). Новое приложение ещё не реализовано; ниже сохранено описание прежнего Claude-прототипа.
+Текущий проект — отдельный сайт **ai-tutor** на React и Go. Согласованные требования: [ADR-0002](docs/adr/0002-otdelnyj-sajt-dlya-poc.md), [критерии приёмки](docs/poc-acceptance.md), [план реализации](docs/superpowers/plans/2026-10-25-ai-tutor-poc.md). Приложение в разработке; ниже сначала запуск нового сайта, затем описание прежнего Claude-прототипа. Технические решения: [docs/implementation-decisions.md](docs/implementation-decisions.md).
+
+## Локальный запуск ai-tutor
+
+Нужны Docker с Compose, Go 1.27, Node 22+ (для тестов и разработки фронтенда).
+
+```sh
+cp .env.example .env      # при необходимости поменяйте ADMIN_EMAIL
+make up                   # PostgreSQL, Mailpit, S3, Go-сервер с собранным React
+```
+
+| Адрес | Что там |
+|---|---|
+| http://localhost:8080 | сайт |
+| http://localhost:8025 | локальный почтовый ящик Mailpit: письма с кодом входа |
+| localhost:5433 | PostgreSQL (`tutor`/`tutor`) |
+| localhost:7070 | S3 (Versity Gateway) |
+
+Вход: введите почту, откройте письмо в Mailpit, введите 6-значный код. Пароля нет. Аккаунт из `ADMIN_EMAIL` при старте получает флаг преподавателя; выдать флаг другому существующему аккаунту — `make admin EMAIL=…`. Данные лежат в томах Docker и переживают `make down` и `make up`.
+
+Проверки:
+
+```sh
+make test-contracts   # OpenAPI, схемы курса и результатов агентов, типы React
+make test-auth        # вход по коду, сессии, роли, изоляция учеников
+make e2e              # браузерные сценарии против запущенного make up
+```
+
+Фронтенд в режиме разработки: `make up`, затем `cd web && npm ci && npm run dev` (Vite проксирует `/api` на :8080).
 
 ## Прежний Claude-прототип
 
