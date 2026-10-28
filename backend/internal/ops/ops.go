@@ -206,6 +206,19 @@ func (r *Runner) Get(ctx context.Context, opID, learnerID string) (Op, error) {
 	return op, err
 }
 
+// List returns every operation of a course, oldest first.
+func (r *Runner) List(ctx context.Context, courseID string) ([]Op, error) {
+	rows, err := r.DB.Query(ctx, `select `+cols+` from operations where course_id = $1 order by created_at`, courseID)
+	if err != nil {
+		return nil, err
+	}
+	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Op, error) { return scan(row) })
+	if list == nil {
+		list = []Op{}
+	}
+	return list, err
+}
+
 // Current is the course's latest operation unless it succeeded.
 func (r *Runner) Current(ctx context.Context, courseID string) (*Op, error) {
 	op, err := scan(r.DB.QueryRow(ctx, `select `+cols+` from operations where course_id = $1 order by created_at desc limit 1`, courseID))

@@ -130,28 +130,6 @@ func (s *server) getCourse(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) listLearners(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.DB.Query(r.Context(), `select id, email, created_at from accounts where not is_teacher order by created_at`)
-	if err != nil {
-		internalError(w, r, err)
-		return
-	}
-	type learner struct {
-		ID        string    `json:"id"`
-		Email     string    `json:"email"`
-		CreatedAt time.Time `json:"createdAt"`
-	}
-	list, err := pgx.CollectRows(rows, pgx.RowToStructByPos[learner])
-	if err != nil {
-		internalError(w, r, err)
-		return
-	}
-	if list == nil {
-		list = []learner{}
-	}
-	writeJSON(w, http.StatusOK, list)
-}
-
 func (s *server) getContent(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.ownCourse(w, r)
 	if !ok {

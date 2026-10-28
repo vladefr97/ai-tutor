@@ -350,6 +350,20 @@ paths:
                 items: { $ref: '#/components/schemas/LearnerSummary' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
+  /teacher/courses/{courseId}:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    get:
+      summary: Курс ученика в режиме просмотра (только преподаватель)
+      responses:
+        default: { $ref: '#/components/responses/Error' }
+        '200':
+          description: Курс со всей историей
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TeacherCourse' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /teacher/attendance:
     get:
       summary: Показатели посещаемости (только преподаватель)
@@ -413,11 +427,91 @@ components:
     LearnerSummary:
       type: object
       additionalProperties: false
-      required: [id, email, createdAt]
+      required: [id, email, createdAt, courses]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         email: { type: string, format: email }
         createdAt: { type: string, format: date-time }
+        courses:
+          type: array
+          items: { $ref: '#/components/schemas/TeacherCourseSummary' }
+    TeacherCourseSummary:
+      type: object
+      additionalProperties: false
+      required: [id, direction, status, goal, createdAt, progress]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        direction: { $ref: '#/components/schemas/DirectionId' }
+        status: { type: string }
+        goal: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        progress: { $ref: '#/components/schemas/Progress' }
+    Progress:
+      description: По опубликованной версии курса; до публикации всё 0
+      type: object
+      additionalProperties: false
+      required: [questionsTotal, questionsPassed, practiceTotal, practicePassed]
+      properties:
+        questionsTotal: { type: integer }
+        questionsPassed: { type: integer, description: Встроенные вопросы с зачтённой учебной попыткой }
+        practiceTotal: { type: integer }
+        practicePassed: { type: integer }
+    TeacherPlanVersion:
+      description: |
+        Версия плана для преподавателя. В отличие от ученика, преподаватель видит
+        все версии и результат Ревьюера плана: это история согласования плана.
+      type: object
+      additionalProperties: false
+      required: [id, number, plan, explanation, approved, review, confirmed, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        number: { type: integer, minimum: 1 }
+        plan: { $ref: '#/components/schemas/Plan' }
+        explanation: { type: string }
+        approved: { type: boolean }
+        review:
+          description: Результат Ревьюера плана (plan_review из agent-result.schema.json); null — ревью не завершено
+          type: object
+          nullable: true
+          additionalProperties: true
+        confirmed: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    TeacherCourse:
+      description: Всё о курсе ученика только для просмотра
+      type: object
+      additionalProperties: false
+      required: [learner, course, progress, messages, planVersions, content, attempts, operations, chat]
+      properties:
+        learner:
+          type: object
+          additionalProperties: false
+          required: [id, email]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            email: { type: string, format: email }
+        course: { $ref: '#/components/schemas/Course' }
+        progress: { $ref: '#/components/schemas/Progress' }
+        messages:
+          description: Интервью и обсуждение плана
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
+        planVersions:
+          type: array
+          items: { $ref: '#/components/schemas/TeacherPlanVersion' }
+        content:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/CourseContent' }]
+        attempts:
+          type: array
+          items: { $ref: '#/components/schemas/Attempt' }
+        operations:
+          description: Все фоновые операции курса, включая ошибки
+          type: array
+          items: { $ref: '#/components/schemas/Operation' }
+        chat:
+          description: Переписка с Учебным наставником
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
     DirectionId:
       type: string
       enum: [python, git, pm]
