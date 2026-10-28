@@ -17,10 +17,12 @@ import (
 	"github.com/vladefr97/tutor-app/backend/internal/agents/fake"
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
 	"github.com/vladefr97/tutor-app/backend/internal/db"
+	"github.com/vladefr97/tutor-app/backend/internal/generation"
 	"github.com/vladefr97/tutor-app/backend/internal/httpapi"
 	"github.com/vladefr97/tutor-app/backend/internal/mailer"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 	"github.com/vladefr97/tutor-app/backend/internal/planning"
+	"github.com/vladefr97/tutor-app/backend/internal/storage"
 )
 
 func env(key, def string) string {
@@ -103,17 +105,25 @@ func main() {
 			agents.WorkReviewer:   env("MODEL_WORK_REVIEWER", "gpt-6-astra"),
 		},
 	}
-	runner := &ops.Runner{DB: pool, Timeout: duration("OPERATION_TIMEOUT", "30m")}
+	runner := &ops.Runner{DB: pool, Timeout: duration("OPERATION_TIMEOUT", "60m")}
 	if err := runner.FailInterrupted(ctx); err != nil {
 		slog.Error("operations", "err", err)
 		os.Exit(1)
 	}
 	planningSvc := &planning.Service{DB: pool, Agent: agent, Config: agentCfg, Ops: runner}
 	planningSvc.Register()
+	store, err := storage.New(ctx, env("S3_ENDPOINT", "localhost:7070"), env("S3_ACCESS_KEY", "tutor"),
+		env("S3_SECRET_KEY", "tutor-secret"), env("S3_BUCKET", "courses"), env("S3_SECURE", "false") == "true")
+	if err != nil {
+		slog.Error("storage", "err", err)
+		os.Exit(1)
+	}
+	generationSvc := &generation.Service{DB: pool, Agent: agent, Config: agentCfg, Ops: runner, Store: store, MaxStructureFixes: 3}
+	generationSvc.Register()
 
 	srv := &http.Server{
 		Addr: env("HTTP_ADDR", ":8080"),
-		Handler: httpapi.New(httpapi.Deps{DB: pool, Auth: authSvc, Ops: runner, Planning: planningSvc,
+		Handler: httpapi.New(httpapi.Deps{DB: pool, Auth: authSvc, Ops: runner, Planning: planningSvc, Generation: generationSvc,
 			CookieSecure: env("COOKIE_SECURE", "false") == "true", WebDir: env("WEB_DIR", "web/dist")}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

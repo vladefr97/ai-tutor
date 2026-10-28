@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -45,11 +46,11 @@ func (s *server) directions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, directions)
 }
 
-const courseColumns = `id, direction, status, goal, profile, created_at, confirmed_plan_version_id`
+const courseColumns = `id, direction, status, goal, profile, created_at, confirmed_plan_version_id, content_version_id`
 
 func scanCourse(row pgx.Row) (course, error) {
 	var c course
-	err := row.Scan(&c.ID, &c.Direction, &c.Status, &c.Goal, &c.Profile, &c.CreatedAt, &c.ConfirmedPlanVersionID)
+	err := row.Scan(&c.ID, &c.Direction, &c.Status, &c.Goal, &c.Profile, &c.CreatedAt, &c.ConfirmedPlanVersionID, &c.ContentVersionID)
 	c.PracticeAccess.State = "github_not_connected"
 	if c.Direction == "pm" {
 		c.PracticeAccess.State = "not_required"
@@ -149,4 +150,21 @@ func (s *server) listLearners(w http.ResponseWriter, r *http.Request) {
 		list = []learner{}
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *server) getContent(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.ownCourse(w, r)
+	if !ok {
+		return
+	}
+	if c.ContentVersionID == nil {
+		writeError(w, http.StatusConflict, "not_ready", "Курс ещё не готов")
+		return
+	}
+	raw, err := s.Generation.PublicCourse(r.Context(), c.ID, *c.ContentVersionID)
+	if err != nil {
+		internalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"versionId": *c.ContentVersionID, "course": json.RawMessage(raw)})
 }

@@ -29,7 +29,7 @@ admin:
 	docker compose exec backend /server admin "$(EMAIL)"
 
 db-up: .env
-	docker compose up -d --wait postgres
+	docker compose up -d --wait postgres s3
 
 # Контракты: OpenAPI, схемы курса и результатов агентов на валидных и невалидных примерах;
 # типы React из OpenAPI.

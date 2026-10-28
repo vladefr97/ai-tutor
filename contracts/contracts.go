@@ -3,5 +3,5 @@ package contracts
 
 import "embed"
 
-//go:embed *.json *.yaml
+//go:embed *.json *.yaml examples/course/valid
 var FS embed.FS

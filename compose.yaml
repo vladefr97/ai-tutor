@@ -42,7 +42,9 @@ services:
       SMTP_ADDR: mailpit:1025
       AUTH_PEPPER: ${AUTH_PEPPER:-local-dev-pepper}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-teacher@example.com}
-      S3_ENDPOINT: http://s3:7070
+      S3_ENDPOINT: s3:7070
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-tutor}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-tutor-secret}
       AGENT_FAKE: ${AGENT_FAKE:-0}
       AGENT_CONFIG_DIR: /agent-config
       # Agent containers are started on the host Docker; session dirs must have

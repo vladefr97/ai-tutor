@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
+	"github.com/vladefr97/tutor-app/backend/internal/generation"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 	"github.com/vladefr97/tutor-app/backend/internal/planning"
 	"github.com/vladefr97/tutor-app/backend/internal/visits"
@@ -27,6 +28,7 @@ type Deps struct {
 	Auth         *auth.Service
 	Ops          *ops.Runner
 	Planning     *planning.Service
+	Generation   *generation.Service
 	CookieSecure bool
 	WebDir       string // built React app; empty disables static serving
 }
@@ -53,6 +55,7 @@ func New(d Deps) http.Handler {
 	mux.Handle("POST /api/courses/{courseId}/interview/skip", s.learner(s.skipInterview))
 	mux.Handle("GET /api/courses/{courseId}/plan", s.learner(s.getPlan))
 	mux.Handle("POST /api/courses/{courseId}/plan/confirm", s.learner(s.confirmPlan))
+	mux.Handle("GET /api/courses/{courseId}/content", s.learner(s.getContent))
 	mux.Handle("GET /api/operations/{operationId}", s.learner(s.getOperation))
 	mux.Handle("POST /api/operations/{operationId}/retry", s.learner(s.retryOperation))
 	mux.Handle("GET /api/teacher/learners", s.teacher(s.listLearners))

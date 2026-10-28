@@ -3,6 +3,8 @@ package httpapi_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -23,9 +25,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vladefr97/tutor-app/backend/internal/agents"
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
+	"github.com/vladefr97/tutor-app/backend/internal/generation"
 	"github.com/vladefr97/tutor-app/backend/internal/httpapi"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 	"github.com/vladefr97/tutor-app/backend/internal/planning"
+	"github.com/vladefr97/tutor-app/backend/internal/storage"
 	"github.com/vladefr97/tutor-app/backend/internal/testdb"
 	"github.com/vladefr97/tutor-app/contracts"
 )
@@ -71,6 +75,8 @@ type harness struct {
 	agent  *scriptedAgent
 	ops    *ops.Runner
 	deps   httpapi.Deps
+	store  *flakyStore
+	gen    *generation.Service
 }
 
 const (
@@ -110,10 +116,14 @@ func newHarness(t *testing.T) *harness {
 	h.agent = &scriptedAgent{}
 	h.ops = &ops.Runner{DB: pool, Timeout: time.Minute}
 	cfg := agents.Config{InstructionsDir: instructionsDir(t), SessionsDir: t.TempDir(),
-		Models: map[agents.Role]string{agents.Planner: "planner-model", agents.PlanReviewer: "reviewer-model"}}
+		Models: map[agents.Role]string{agents.Planner: "planner-model", agents.PlanReviewer: "reviewer-model",
+			agents.Generator: "generator-model", agents.WorkReviewer: "work-reviewer-model"}}
 	plan := &planning.Service{DB: pool, Agent: h.agent, Config: cfg, Ops: h.ops}
 	plan.Register()
-	h.deps = httpapi.Deps{DB: pool, Auth: h.auth, Ops: h.ops, Planning: plan}
+	h.store = &flakyStore{Store: testStore(t)}
+	h.gen = &generation.Service{DB: pool, Agent: h.agent, Config: cfg, Ops: h.ops, Store: h.store, MaxStructureFixes: 2}
+	h.gen.Register()
+	h.deps = httpapi.Deps{DB: pool, Auth: h.auth, Ops: h.ops, Planning: plan, Generation: h.gen}
 	h.srv = httptest.NewServer(httpapi.New(h.deps))
 	t.Cleanup(func() { h.ops.Wait(); h.srv.Close() })
 	return h
@@ -133,6 +143,8 @@ func instructionsDir(t *testing.T) string {
 	dir := t.TempDir()
 	for path, text := range map[string]string{
 		"roles/planner.md":          "ПРОМПТ ПЛАНИРОВЩИКА",
+		"roles/generator.md":        "ПРОМПТ ГЕНЕРАТОРА",
+		"roles/work-reviewer.md":    "ПРОМПТ РЕВЬЮЕРА РАБОТ",
 		"roles/plan-reviewer.md":    "ПРОМПТ РЕВЬЮЕРА ПЛАНА",
 		"directions/git/base.md":    "ОСНОВА GIT",
 		"directions/pm/base.md":     "ОСНОВА PM",
@@ -142,6 +154,41 @@ func instructionsDir(t *testing.T) string {
 		os.WriteFile(filepath.Join(dir, path), []byte(text), 0o644)
 	}
 	return dir
+}
+
+// testStore is a fresh bucket in the local S3 (make test-* starts it).
+func testStore(t *testing.T) *storage.Store {
+	t.Helper()
+	endpoint := os.Getenv("TEST_S3_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "localhost:7070"
+	}
+	b := make([]byte, 4)
+	rand.Read(b)
+	st, err := storage.New(context.Background(), endpoint, "tutor", "tutor-secret", "test-"+hex.EncodeToString(b), false)
+	if err != nil {
+		t.Fatalf("S3 at %s: %v (run make db-up)", endpoint, err)
+	}
+	return st
+}
+
+// flakyStore fails puts after failPuts successful ones, if failPuts > 0.
+type flakyStore struct {
+	*storage.Store
+	mu       sync.Mutex
+	failPuts int
+	puts     int
+}
+
+func (f *flakyStore) Put(ctx context.Context, key string, data []byte) error {
+	f.mu.Lock()
+	f.puts++
+	fail := f.failPuts > 0 && f.puts > f.failPuts
+	f.mu.Unlock()
+	if fail {
+		return errors.New("storage unavailable")
+	}
+	return f.Store.Put(ctx, key, data)
 }
 
 // scriptedAgent answers turns with a function set by the test and records requests.

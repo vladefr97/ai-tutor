@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/vladefr97/tutor-app/backend/internal/agents"
+	"github.com/vladefr97/tutor-app/contracts"
 )
 
 type Agent struct{}
@@ -39,6 +40,14 @@ func (Agent) Turn(_ context.Context, req agents.TurnRequest) (agents.TurnResult,
 	case agents.PlanReviewer:
 		time.Sleep(delay)
 		return planReview(req, thread)
+	case agents.Generator:
+		time.Sleep(delay)
+		return generate(req, thread)
+	case agents.WorkReviewer:
+		time.Sleep(delay)
+		if isKind(req, agents.KindContentReview) {
+			return result(thread, map[string]any{"kind": "content_review", "approved": true, "issues": []any{}})
+		}
 	}
 	return agents.TurnResult{}, errors.New("fake agent: role " + string(req.Role) + " is not scripted")
 }
@@ -144,4 +153,56 @@ func planReview(req agents.TurnRequest, thread string) (agents.TurnResult, error
 	return result(thread, map[string]any{"kind": "plan_review", "approved": !first,
 		"goal": map[string]any{"ok": true, "outOfScope": false, "issues": []string{}},
 		"plan": map[string]any{"ok": !first, "issues": issues}})
+}
+
+// generate writes a valid course: the PM example from contracts, or the
+// Python example with official checks and repository files for code tasks.
+func generate(req agents.TurnRequest, thread string) (agents.TurnResult, error) {
+	out := filepath.Join(req.SessionDir, "workspace", "out")
+	example := "pm-basics"
+	direction := directionOf(req)
+	if direction != "pm" {
+		example = "python-functions"
+	}
+	files := map[string][]byte{}
+	for _, name := range []string{"course.json", "private.json"} {
+		data, err := contracts.FS.ReadFile("examples/course/valid/" + example + "/" + name)
+		if err != nil {
+			return agents.TurnResult{}, err
+		}
+		if name == "course.json" {
+			data = []byte(strings.Replace(string(data), `"direction": "python"`, `"direction": "`+direction+`"`, 1))
+			files["public/course.json"] = data
+		} else {
+			files["private/private.json"] = data
+		}
+	}
+	if direction != "pm" {
+		files["repo/README.md"] = []byte("# Учебный репозиторий\n\nЗапуск тестов: `python -m pytest`.\n")
+		for id, repoPath := range map[string]string{"t-sum-list": "tasks/sum_even", "exam-a-max": "exam/a/max_of", "exam-b-count": "exam/b/count_words"} {
+			files["repo/"+repoPath+"/README.md"] = []byte("Условие задания " + id + "\n")
+			files["private/checks/"+id+"/test_task.py"] = []byte("def test_placeholder():\n    assert True\n")
+		}
+	}
+	for path, data := range files {
+		target := filepath.Join(out, filepath.FromSlash(path))
+		os.MkdirAll(filepath.Dir(target), 0o777)
+		if err := os.WriteFile(target, data, 0o666); err != nil {
+			return agents.TurnResult{}, err
+		}
+	}
+	return agents.TurnResult{ThreadID: thread, Text: "Курс готов."}, nil
+}
+
+// directionOf reads the direction from the title of the expert base copied into the workspace.
+func directionOf(req agents.TurnRequest) string {
+	base, _ := os.ReadFile(filepath.Join(req.SessionDir, "workspace", "input", "base.md"))
+	title, _, _ := strings.Cut(string(base), "\n")
+	switch {
+	case strings.HasSuffix(title, "Git"):
+		return "git"
+	case strings.HasSuffix(title, "Python"):
+		return "python"
+	}
+	return "pm"
 }

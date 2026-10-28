@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/vladefr97/tutor-app/backend/internal/agents"
+	"github.com/vladefr97/tutor-app/backend/internal/generation"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 )
 
@@ -179,7 +180,8 @@ var ErrVersionMismatch = errors.New("only the latest approved plan version can b
 
 // Confirm records the learner's confirmation of a specific approved version.
 func (s *Service) Confirm(ctx context.Context, courseID, versionID string) error {
-	return pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
+	var started *ops.Op
+	err := pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
 		var status, direction string
 		if err := tx.QueryRow(ctx, `select status, direction from courses where id = $1 for update`, courseID).Scan(&status, &direction); err != nil {
 			return err
@@ -201,7 +203,18 @@ func (s *Service) Confirm(ctx context.Context, courseID, versionID string) error
 		if direction == "pm" {
 			next = "generating"
 		}
-		_, err = tx.Exec(ctx, `update courses set confirmed_plan_version_id = $2, status = $3 where id = $1`, courseID, versionID, next)
+		if _, err = tx.Exec(ctx, `update courses set confirmed_plan_version_id = $2, status = $3 where id = $1`, courseID, versionID, next); err != nil {
+			return err
+		}
+		if direction != "pm" {
+			return nil // Python and Git generate after GitHub is connected
+		}
+		op, err := s.Ops.Start(ctx, tx, courseID, generation.Kind, generation.Input{PlanVersionID: versionID})
+		started = &op
 		return err
 	})
+	if err == nil && started != nil {
+		s.Ops.Launch(*started)
+	}
+	return err
 }
