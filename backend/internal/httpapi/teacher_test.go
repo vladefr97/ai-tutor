@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"encoding/json"
+	"github.com/vladefr97/tutor-app/backend/internal/agents"
 	"strings"
 	"testing"
 )
@@ -120,5 +121,25 @@ func TestTeacherCannotActForTheLearner(t *testing.T) {
 	}
 	if st, _ := teacher.do("GET", "/api/teacher/courses/00000000-0000-0000-0000-000000000009", nil); st != 404 {
 		t.Fatalf("unknown course: %d", st)
+	}
+}
+
+func TestTeacherSeesTheLearnersMentorChat(t *testing.T) {
+	h, g, a, courseID := readyPM(t)
+	h.agent.set(func(req agents.TurnRequest) (agents.TurnResult, error) {
+		if req.Role == agents.LearningMentor {
+			return agents.TurnResult{ThreadID: "mentor", Text: "Риск — возможное событие."}, nil
+		}
+		return g.reply(req)
+	})
+	if op := a.chat(courseID, "Что такое риск?", "p-risks"); op.Status != "succeeded" {
+		t.Fatalf("chat: %+v", op)
+	}
+	learner := a.chatHistory(courseID)
+	_, b := h.login(adminEmail).do("GET", "/api/teacher/courses/"+courseID, nil)
+	var tc struct{ Chat []chatMessage }
+	json.Unmarshal(b, &tc)
+	if len(tc.Chat) != 2 || len(learner) != 2 || tc.Chat[0] != learner[0] || tc.Chat[1] != learner[1] {
+		t.Fatalf("teacher chat %+v, learner chat %+v", tc.Chat, learner)
 	}
 }

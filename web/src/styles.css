@@ -170,6 +170,10 @@ svg{display:block}
 .at-chat-head{display:flex;align-items:center;justify-content:space-between;padding:19px 20px;border-bottom:1px solid var(--line)}
 .at-chat-head h2{font-size:15px;letter-spacing:0}
 .at-chat-lock{padding:30px 20px;color:var(--muted);font-size:13px}
+.at-tutor{display:flex;flex-direction:column;padding:0 16px 16px;height:calc(100% - 60px)}
+.at-tutor-log{flex:1;overflow-y:auto;max-height:min(60vh,520px);padding-top:12px}
+.at-tutor .at-message{max-width:100%;font-size:13px}
+.at-tutor .at-composer{margin-top:12px;padding:12px 14px 8px}
 .at-chat-launch,.at-chat-close,.at-chat-shade{display:none}
 @media(max-width:960px){
   .at-main.at-course{width:calc(100% - 40px)}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Markdown from 'react-markdown'
 import { useSearchParams } from 'react-router'
 import { api, type Schemas } from './api/client'
+import TutorChat from './TutorChat'
 
 // Public course version as in contracts/course.schema.json (CourseContent.course is untyped in OpenAPI).
 type Option = { id: string; text: string }
@@ -116,7 +117,7 @@ export default function Learn({ course, readOnly }: {
             <h2>Наставник</h2>
             <button className="at-quiet at-chat-close" onClick={() => setChatOpen(false)}>Закрыть</button>
           </div>
-          <p className="at-chat-lock">Чат с наставником скоро появится.</p>
+          <TutorChat courseId={course.id} pageId={page.id} />
         </aside>
       )}
     </div>

@@ -224,10 +224,17 @@ func (s *server) teacherCourse(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// mentorChat is the Learning Mentor conversation.
-// ponytail: empty until the chat table of #16 exists; replace with a query on it.
+// mentorChat is the Learning Mentor conversation of the course.
 func (s *server) mentorChat(ctx context.Context, courseID string) ([]message, error) {
-	return []message{}, nil
+	rows, err := s.DB.Query(ctx, `select id, author, text, created_at from chat_messages where course_id = $1 order by created_at, id`, courseID)
+	if err != nil {
+		return nil, err
+	}
+	list, err := pgx.CollectRows(rows, pgx.RowToStructByPos[message])
+	if list == nil {
+		list = []message{}
+	}
+	return list, err
 }
 
 const prefixedCourseColumns = `c.id, c.direction, c.status, c.goal, c.profile, c.created_at, c.confirmed_plan_version_id, c.content_version_id`

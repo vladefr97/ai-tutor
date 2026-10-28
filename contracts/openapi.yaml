@@ -292,6 +292,47 @@ paths:
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /courses/{courseId}/chat:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    get:
+      summary: Чат с Учебным наставником на странице курса
+      description: Отдельно от интервью; сохраняется между сессиями.
+      responses:
+        default: { $ref: '#/components/responses/Error' }
+        '200':
+          description: Сообщения по порядку
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Message' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Сообщение Учебному наставнику
+      description: 409, если курс ещё не готов или наставник ещё отвечает.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [text, pageId]
+              properties:
+                text: { type: string, minLength: 1, maxLength: 8000 }
+                pageId: { type: string, maxLength: 64, description: Текущая страница курса }
+      responses:
+        default: { $ref: '#/components/responses/Error' }
+        '202':
+          description: Ответ готовится
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operation' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /attempts/{attemptId}:
     parameters:
       - { name: attemptId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
@@ -620,7 +661,7 @@ components:
       required: [id, kind, status]
       properties:
         id: { $ref: '#/components/schemas/Id' }
-        kind: { type: string, enum: [mentor_reply, planning, generation, review] }
+        kind: { type: string, enum: [mentor_reply, planning, generation, review, tutor_chat] }
         status:
           type: string
           description: failed — ошибка; готовность определяется только succeeded
