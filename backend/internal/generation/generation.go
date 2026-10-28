@@ -49,6 +49,9 @@ type Service struct {
 	// MaxStructureFixes bounds the turns spent fixing invalid files; content
 	// review cycles are not limited.
 	MaxStructureFixes int
+	// TemplatesDir holds templates/practice/<direction>, the technical base of
+	// the learner repository; copied to input/template for Python and Git.
+	TemplatesDir string
 
 	cacheMu sync.Mutex
 	cache   map[string]*Version
@@ -203,6 +206,11 @@ func (s *Service) newGeneratorSession(ctx context.Context, courseID, direction s
 			return nil, err
 		}
 	}
+	if direction != "pm" && s.TemplatesDir != "" {
+		if err := os.CopyFS(filepath.Join(input, "template"), os.DirFS(filepath.Join(s.TemplatesDir, "practice", direction))); err != nil {
+			return nil, err
+		}
+	}
 	os.MkdirAll(filepath.Join(g.dir, "workspace", "out"), 0o777)
 	os.Chmod(filepath.Join(g.dir, "workspace", "out"), 0o777)
 	g.instruction, err = s.Config.Instructions(agents.Generator, "")
@@ -298,7 +306,10 @@ func (s *Service) publish(ctx context.Context, courseID, planVersionID, hash, ou
 		if _, err := tx.Exec(ctx, `update course_versions set status = 'ready' where id = $1`, versionID); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `update courses set content_version_id = $2, status = 'ready' where id = $1 and status = 'generating'`, courseID, versionID)
+		tag, err := tx.Exec(ctx, `update courses set content_version_id = $2, status = 'ready' where id = $1 and status = 'generating'`, courseID, versionID)
+		if err == nil && tag.RowsAffected() != 1 {
+			err = errors.New("course left the generating state before publication")
+		}
 		return err
 	})
 }

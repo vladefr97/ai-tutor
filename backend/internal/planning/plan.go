@@ -189,6 +189,14 @@ func (s *Service) Confirm(ctx context.Context, courseID, versionID string) error
 		if status != "plan_ready" {
 			return ErrWrongState
 		}
+		// A reply still in flight could change the plan being confirmed.
+		var busy bool
+		if err := tx.QueryRow(ctx, `select exists (select 1 from operations where course_id = $1 and status in ('queued', 'running'))`, courseID).Scan(&busy); err != nil {
+			return err
+		}
+		if busy {
+			return ops.ErrBusy
+		}
 		var latest string
 		var approved bool
 		err := tx.QueryRow(ctx, `select id, approved from plan_versions where course_id = $1 order by number desc limit 1`, courseID).

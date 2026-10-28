@@ -128,7 +128,8 @@ func main() {
 		slog.Error("storage", "err", err)
 		os.Exit(1)
 	}
-	generationSvc := &generation.Service{DB: pool, Agent: agent, Config: agentCfg, Ops: runner, Store: store, MaxStructureFixes: 3}
+	generationSvc := &generation.Service{DB: pool, Agent: agent, Config: agentCfg, Ops: runner, Store: store, MaxStructureFixes: 3,
+		TemplatesDir: env("TEMPLATES_DIR", "templates")}
 	generationSvc.Register()
 	learningSvc := &learning.Service{DB: pool, Agent: agent, Config: agentCfg, Versions: generationSvc,
 		ReviewTimeout: duration("REVIEW_TIMEOUT", "180s")}

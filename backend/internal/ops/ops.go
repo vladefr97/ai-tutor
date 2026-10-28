@@ -170,6 +170,9 @@ func (r *Runner) run(op Op) {
 		})
 		if err != nil {
 			slog.ErrorContext(ctx, "operation finish", "op", op.ID, "err", err)
+			// Never leave the course blocked by an operation stuck in running.
+			r.DB.Exec(context.Background(), `update operations set status = 'failed', error_code = 'internal',
+				error_message = 'Не получилось. Попробуйте ещё раз.', updated_at = now() where id = $1 and status = 'running'`, op.ID)
 			return
 		}
 		slog.InfoContext(ctx, "operation succeeded", "op", op.ID, "kind", op.Kind)
@@ -222,6 +225,15 @@ func (r *Runner) Retry(ctx context.Context, opID, learnerID string) (Op, error) 
 		return op, err
 	}
 	if op.Status != "failed" {
+		return op, ErrNotRetry
+	}
+	// Only the course's latest operation may be repeated: an older failure
+	// would act on a state the course has already left.
+	var latest string
+	if err := r.DB.QueryRow(ctx, `select id from operations where course_id = $1 order by created_at desc, id limit 1`, op.CourseID).Scan(&latest); err != nil {
+		return op, err
+	}
+	if latest != op.ID {
 		return op, ErrNotRetry
 	}
 	return r.Start(ctx, nil, op.CourseID, op.Kind, op.Input)

@@ -414,3 +414,46 @@ func TestSkippedInterviewGoesStraightToPlanning(t *testing.T) {
 		t.Fatalf("planner must know the interview was skipped: %q", drafted)
 	}
 }
+
+func TestOnlyTheLatestFailedOperationCanBeRetried(t *testing.T) {
+	h, s := newPlanningHarness(t) // reviewer fails first
+	a := h.login("a@example.com")
+	c, failed := a.interviewToPlan("pm")
+	if failed.Status != "failed" {
+		t.Fatalf("setup: %+v", failed)
+	}
+	s.queueReviews(approve())
+	_, b := a.do("POST", "/api/operations/"+failed.ID+"/retry", nil)
+	a.waitOp(decode[operation](t, b).ID)
+	if a.course(c.ID).Status != "plan_ready" {
+		t.Fatal("setup: plan not ready")
+	}
+	_, v := a.plan(c.ID)
+	// The old failure must not run planning again over the shown version.
+	if st, _ := a.do("POST", "/api/operations/"+failed.ID+"/retry", nil); st != 409 {
+		t.Fatalf("stale retry: want 409, got %d", st)
+	}
+	if _, now := a.plan(c.ID); now.ID != v.ID {
+		t.Fatal("stale retry created a new plan version")
+	}
+}
+
+func TestConfirmIsRejectedWhileTheMentorIsStillReplying(t *testing.T) {
+	h, s := newPlanningHarness(t)
+	s.queueReviews(approve())
+	a := h.login("a@example.com")
+	c, _ := a.interviewToPlan("python")
+	_, v := a.plan(c.ID)
+	release := make(chan struct{})
+	h.agent.set(func(req agents.TurnRequest) (agents.TurnResult, error) {
+		<-release
+		return turn("Хорошо, обновлю план.", ptr("Цель"), true, ""), nil
+	})
+	if st, _ := a.do("POST", "/api/courses/"+c.ID+"/messages", map[string]string{"text": "добавь модуль"}); st != 202 {
+		t.Fatal(st)
+	}
+	if st, _ := a.do("POST", "/api/courses/"+c.ID+"/plan/confirm", map[string]string{"planVersionId": v.ID}); st != 409 {
+		t.Fatalf("confirm during a reply: want 409, got %d", st)
+	}
+	close(release)
+}

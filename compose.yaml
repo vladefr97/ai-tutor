@@ -47,6 +47,7 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-tutor-secret}
       AGENT_FAKE: ${AGENT_FAKE:-0}
       AGENT_CONFIG_DIR: /agent-config
+      TEMPLATES_DIR: /templates
       # Agent containers are started on the host Docker; session dirs must have
       # the same absolute path for the backend and for the host (see Makefile).
       AGENT_SESSIONS_DIR: ${AGENT_DATA_DIR:-${PWD}/.data/agents}
@@ -57,6 +58,7 @@ services:
       OBSERVABILITY_TEST_ROUTES: ${OBSERVABILITY_TEST_ROUTES:-0}
     volumes:
       - ./agent-config:/agent-config:ro
+      - ./templates:/templates:ro
       - ${AGENT_DATA_DIR:-${PWD}/.data/agents}:${AGENT_DATA_DIR:-${PWD}/.data/agents}
       - /var/run/docker.sock:/var/run/docker.sock
     ports: ["127.0.0.1:${PORT_HTTP:-8080}:8080"]
