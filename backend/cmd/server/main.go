@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/vladefr97/tutor-app/backend/internal/agents"
 	"github.com/vladefr97/tutor-app/backend/internal/agents/codex"
 	"github.com/vladefr97/tutor-app/backend/internal/agents/fake"
@@ -21,6 +23,7 @@ import (
 	"github.com/vladefr97/tutor-app/backend/internal/mailer"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 	"github.com/vladefr97/tutor-app/backend/internal/planning"
+	"github.com/vladefr97/tutor-app/backend/internal/telemetry"
 )
 
 func env(key, def string) string {
@@ -49,9 +52,14 @@ func duration(key, def string) time.Duration {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	flush, err := telemetry.Setup(ctx, "tutor-backend", os.Getenv("OTLP_TRACES_URL"), os.Getenv("OTLP_LOGS_URL"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "telemetry:", err)
+		os.Exit(2)
+	}
+	defer flush(context.Background())
 
 	pool, err := db.Open(ctx, mustEnv("DATABASE_URL"), "")
 	if err != nil {
@@ -103,6 +111,7 @@ func main() {
 			agents.WorkReviewer:   env("MODEL_WORK_REVIEWER", "gpt-6-astra"),
 		},
 	}
+	agent = telemetry.Agent{Next: agent}
 	runner := &ops.Runner{DB: pool, Timeout: duration("OPERATION_TIMEOUT", "30m")}
 	if err := runner.FailInterrupted(ctx); err != nil {
 		slog.Error("operations", "err", err)
@@ -111,12 +120,26 @@ func main() {
 	planningSvc := &planning.Service{DB: pool, Agent: agent, Config: agentCfg, Ops: runner}
 	planningSvc.Register()
 
+	var app http.Handler = httpapi.New(httpapi.Deps{DB: pool, Auth: authSvc, Ops: runner, Planning: planningSvc,
+		CookieSecure: env("COOKIE_SECURE", "false") == "true", WebDir: env("WEB_DIR", "web/dist")})
+	if os.Getenv("OBSERVABILITY_TEST_ROUTES") == "1" {
+		slog.Warn("OBSERVABILITY_TEST_ROUTES=1: /api/observability-test/* enabled")
+		app = telemetry.TestRoutes(app)
+	}
 	srv := &http.Server{
-		Addr: env("HTTP_ADDR", ":8080"),
-		Handler: httpapi.New(httpapi.Deps{DB: pool, Auth: authSvc, Ops: runner, Planning: planningSvc,
-			CookieSecure: env("COOKIE_SECURE", "false") == "true", WebDir: env("WEB_DIR", "web/dist")}),
+		Addr:              env("HTTP_ADDR", ":8080"),
+		Handler:           telemetry.Middleware(app),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	// Metrics on a separate listener: scrapes are not learner visits or API traffic.
+	prometheus.MustRegister(telemetry.PoolCollector{Pool: pool}, telemetry.AttendanceCollector{Pool: pool, Now: time.Now})
+	go func() {
+		m := http.NewServeMux()
+		m.Handle("GET /metrics", promhttp.Handler())
+		if err := http.ListenAndServe(env("METRICS_ADDR", ":9090"), m); err != nil {
+			slog.Error("metrics listener", "err", err)
+		}
+	}()
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

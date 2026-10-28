@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: tutor
       POSTGRES_PASSWORD: tutor
       POSTGRES_DB: tutor
-    ports: ["127.0.0.1:5433:5432"]
+    ports: ["127.0.0.1:${PORT_POSTGRES:-5433}:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tutor -d tutor"]
@@ -16,7 +16,7 @@ services:
 
   mailpit:
     image: axllent/mailpit:v1.32.0
-    ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"]
+    ports: ["127.0.0.1:${PORT_MAILPIT:-8025}:8025", "127.0.0.1:${PORT_SMTP:-1025}:1025"]
     environment:
       MP_DATABASE: /data/mailpit.db
     volumes: [maildata:/data]
@@ -27,7 +27,7 @@ services:
       ROOT_ACCESS_KEY: ${S3_ACCESS_KEY:-tutor}
       ROOT_SECRET_KEY: ${S3_SECRET_KEY:-tutor-secret}
     command: ["posix", "/data"]
-    ports: ["127.0.0.1:7070:7070"]
+    ports: ["127.0.0.1:${PORT_S3:-7070}:7070"]
     volumes: [s3data:/data]
 
   backend:
@@ -48,13 +48,63 @@ services:
       # Agent containers are started on the host Docker; session dirs must have
       # the same absolute path for the backend and for the host (see Makefile).
       AGENT_SESSIONS_DIR: ${AGENT_DATA_DIR:-${PWD}/.data/agents}
+      MODEL_PLANNER: ${MODEL_PLANNER:-gpt-6-astra}
+      OTLP_TRACES_URL: http://tempo:4318/v1/traces
+      OTLP_LOGS_URL: http://loki:3100/otlp/v1/logs
+      # Only make verify-observability sets this: routes with a chosen status or delay.
+      OBSERVABILITY_TEST_ROUTES: ${OBSERVABILITY_TEST_ROUTES:-0}
     volumes:
       - ./agent-config:/agent-config:ro
       - ${AGENT_DATA_DIR:-${PWD}/.data/agents}:${AGENT_DATA_DIR:-${PWD}/.data/agents}
       - /var/run/docker.sock:/var/run/docker.sock
-    ports: ["127.0.0.1:8080:8080"]
+    ports: ["127.0.0.1:${PORT_HTTP:-8080}:8080"]
+
+  # Observability: Prometheus scrapes backend:9090/metrics; the backend sends
+  # OTLP traces to Tempo and OTLP logs to Loki; Grafana is provisioned from infra/observability.
+  prometheus:
+    image: prom/prometheus:v3.13.2
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=7d"]
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports: ["127.0.0.1:${PORT_PROMETHEUS:-9090}:9090"]
+
+  loki:
+    image: grafana/loki:3.7.8
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./infra/observability/loki.yaml:/etc/loki/loki.yaml:ro
+      - lokidata:/loki
+    ports: ["127.0.0.1:${PORT_LOKI:-3100}:3100"]
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    user: "0"
+    volumes:
+      - ./infra/observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempodata:/var/tempo
+    ports: ["127.0.0.1:${PORT_TEMPO:-3200}:3200"]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    depends_on: [prometheus, loki, tempo]
+    environment:
+      # Local PoC only: anonymous read-only access, no login page.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/tutor-backend.json
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["127.0.0.1:${PORT_GRAFANA:-3000}:3000"]
 
 volumes:
   pgdata:
   maildata:
   s3data:
+  promdata:
+  lokidata:
+  tempodata:

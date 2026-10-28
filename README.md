@@ -17,6 +17,8 @@ make up                   # PostgreSQL, Mailpit, S3, Go-сервер с собр
 | http://localhost:8025 | локальный почтовый ящик Mailpit: письма с кодом входа |
 | localhost:5433 | PostgreSQL (`tutor`/`tutor`) |
 | localhost:7070 | S3 (Versity Gateway) |
+| http://localhost:3000 | Grafana: дашборд «ai-tutor: бэкенд», логи (Loki) и трейсы (Tempo) |
+| http://localhost:9090 | Prometheus |
 
 Вход: введите почту, откройте письмо в Mailpit, введите 6-значный код. Пароля нет. Аккаунт из `ADMIN_EMAIL` при старте получает флаг преподавателя; выдать флаг другому существующему аккаунту — `make admin EMAIL=…`. Данные лежат в томах Docker и переживают `make down` и `make up`.
 
@@ -26,6 +28,8 @@ make up                   # PostgreSQL, Mailpit, S3, Go-сервер с собр
 make test-contracts   # OpenAPI, схемы курса и результатов агентов, типы React
 make test-auth        # вход по коду, сессии, роли, изоляция учеников
 make e2e              # браузерные сценарии против запущенного make up
+make test-telemetry   # метрики, маскирование секретов в логах, показатели посещаемости
+make verify-observability  # живой стек: счётчики Prometheus, трасса Tempo, логи Loki, панели Grafana
 ```
 
 Фронтенд в режиме разработки: `make up`, затем `cd web && npm ci && npm run dev` (Vite проксирует `/api` на :8080).

@@ -1,4 +1,4 @@
-.PHONY: up down admin test-contracts test-auth test-attendance e2e db-up
+.PHONY: up down admin test-contracts test-auth test-attendance e2e db-up test-telemetry verify-observability
 
 CODEX_IMAGE := tutor-codex:0.163.0
 export AGENT_DATA_DIR := $(CURDIR)/.data/agents
@@ -52,6 +52,17 @@ test-planning: db-up
 # Реальный вызов модели через контейнер Codex (нужен OPENAI_API_KEY в .env).
 verify-codex-live: .env codex-image
 	set -a && . ./.env && set +a && LIVE_CODEX=1 go test ./backend/internal/agents/codex/ -run Live -v -count=1 -timeout 10m
+
+# Метрики, логи и трейсы: детерминированная часть.
+test-telemetry: db-up
+	go test ./backend/internal/telemetry/
+
+# AC-12/AC-13 на живом стеке: перезапускает бэкенд с тестовыми маршрутами 5xx/slow и
+# несуществующей моделью планировщика (реальная ошибка внешнего вызова), сверяет
+# Prometheus, Tempo, Loki и панели Grafana, затем возвращает обычную конфигурацию.
+verify-observability: .env
+	AGENT_FAKE=0 OBSERVABILITY_TEST_ROUTES=1 MODEL_PLANNER=nonexistent-model-for-observability-check $(MAKE) up
+	set -a && . ./.env && set +a && python3 scripts/verify-observability.py; status=$$?; $(MAKE) up; exit $$status
 
 # Браузерные сценарии против запущенного make up.
 e2e:
