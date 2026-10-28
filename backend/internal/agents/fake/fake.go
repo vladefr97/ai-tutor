@@ -210,12 +210,20 @@ func directionOf(req agents.TurnRequest) string {
 
 // workReview passes a short answer that mentions «заранее».
 func workReview(req agents.TurnRequest, thread string) (agents.TurnResult, error) {
-	var in struct{ Answer string }
+	var in struct{ Mode, Answer string }
 	json.Unmarshal([]byte(req.Input), &in)
 	passed := strings.Contains(in.Answer, "заранее")
 	verdict, feedback := "changes_requested", "Не хватает: зачем готовить меры заранее"
+	if in.Mode == "case" {
+		// A case passes when it names risks and is not a one-liner.
+		passed = strings.Contains(strings.ToLower(in.Answer), "риск") && len([]rune(in.Answer)) > 40
+		feedback = "Не хватает: риски и меры реагирования"
+	}
 	if passed {
 		verdict, feedback = "passed", "Верно: меры готовят заранее."
+		if in.Mode == "case" {
+			feedback = "Зачтено: цель, задачи и риски на месте."
+		}
 	}
 	return result(thread, map[string]any{"kind": "work_review", "verdict": verdict, "feedback": feedback,
 		"criteria": []any{map[string]any{"criterion": "Меры реагирования готовят заранее", "met": passed, "comment": ""}}})

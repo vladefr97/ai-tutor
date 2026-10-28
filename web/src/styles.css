@@ -189,3 +189,10 @@ svg{display:block}
   .at-page-steps button{font-size:10px;padding:4px 5px}
   .at-page-nav button{padding:10px 13px}
 }
+.at-notice.is-wrong{border-color:#b87575;color:#e6c4c4}
+.at-notice p{margin:6px 0 0}
+.at-task{margin-bottom:44px}
+.at-inline-link{padding:0;text-decoration:underline;font-size:12px}
+.at-history{margin-top:18px;font-size:13px}
+.at-history summary{cursor:pointer;color:var(--muted)}
+.at-history li p{margin:4px 0;overflow-wrap:anywhere;white-space:pre-wrap}

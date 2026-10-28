@@ -1,4 +1,4 @@
-.PHONY: admin build codex-image db-up down e2e test-attendance test-auth test-contracts test-generation test-learning test-planning test-telemetry up verify-codex-live verify-generation-live verify-observability verify-planning-live 
+.PHONY: admin build codex-image db-up down e2e test-attendance test-auth test-contracts test-generation test-learning test-planning test-telemetry up verify-cases-live verify-codex-live verify-generation-live verify-observability verify-planning-live 
 
 CODEX_IMAGE := tutor-codex:0.163.0
 export AGENT_DATA_DIR := $(CURDIR)/.data/agents
@@ -64,7 +64,7 @@ test-generation: db-up
 
 # Встроенные вопросы: оценка, подсказка и разбор, короткий ответ, поздний результат, изоляция.
 test-learning: db-up
-	go test ./backend/internal/httpapi/ -run 'Choice|Mistake|InvalidAnswers|ShortAnswer|ReviewerError|Attempts'
+	go test ./backend/internal/learning/ ./backend/internal/httpapi/ -run 'Choice|Mistake|InvalidAnswers|ShortAnswer|ReviewerError|Attempts|Case'
 
 # Реальные планировщик и ревьюер плана на промптах agent-config/ (пропуск интервью → одобренный план).
 verify-planning-live: .env codex-image db-up
@@ -85,6 +85,10 @@ verify-observability: .env
 verify-generation-live: .env codex-image db-up
 	mkdir -p .data/live
 	set -a && . ./.env && set +a && LIVE_CODEX=1 LIVE_OUT_DIR=$(CURDIR)/.data/live go test ./backend/internal/generation/ -run Live -v -count=1 -timeout 120m
+
+# Реальный Ревьюер работ PM на кейсе: полный ответ — зачёт, без рисков — незачёт.
+verify-cases-live: .env codex-image db-up
+	set -a && . ./.env && set +a && LIVE_CODEX=1 go test ./backend/internal/learning/ -run Live -v -count=1 -timeout 20m
 
 # Браузерные сценарии против запущенного make up.
 e2e:
