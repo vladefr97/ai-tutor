@@ -28,6 +28,7 @@ import (
 	"github.com/vladefr97/tutor-app/backend/internal/generation"
 	"github.com/vladefr97/tutor-app/backend/internal/httpapi"
 	"github.com/vladefr97/tutor-app/backend/internal/learning"
+	"github.com/vladefr97/tutor-app/backend/internal/mentor"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 	"github.com/vladefr97/tutor-app/backend/internal/planning"
 	"github.com/vladefr97/tutor-app/backend/internal/storage"
@@ -119,14 +120,16 @@ func newHarness(t *testing.T) *harness {
 	h.ops = &ops.Runner{DB: pool, Timeout: time.Minute}
 	cfg := agents.Config{InstructionsDir: instructionsDir(t), SessionsDir: t.TempDir(),
 		Models: map[agents.Role]string{agents.Planner: "planner-model", agents.PlanReviewer: "reviewer-model",
-			agents.Generator: "generator-model", agents.WorkReviewer: "work-reviewer-model"}}
+			agents.Generator: "generator-model", agents.WorkReviewer: "work-reviewer-model", agents.LearningMentor: "mentor-model"}}
 	plan := &planning.Service{DB: pool, Agent: h.agent, Config: cfg, Ops: h.ops}
 	plan.Register()
 	h.store = &flakyStore{Store: testStore(t)}
 	h.gen = &generation.Service{DB: pool, Agent: h.agent, Config: cfg, Ops: h.ops, Store: h.store, MaxStructureFixes: 2}
 	h.gen.Register()
 	h.learn = &learning.Service{DB: pool, Agent: h.agent, Config: cfg, Versions: h.gen, ReviewTimeout: time.Minute}
-	h.deps = httpapi.Deps{DB: pool, Auth: h.auth, Ops: h.ops, Planning: plan, Generation: h.gen, Learning: h.learn}
+	tutor := &mentor.Service{DB: pool, Agent: h.agent, Config: cfg, Ops: h.ops, Gen: h.gen}
+	tutor.Register()
+	h.deps = httpapi.Deps{DB: pool, Auth: h.auth, Ops: h.ops, Planning: plan, Generation: h.gen, Learning: h.learn, Mentor: tutor}
 	h.srv = httptest.NewServer(httpapi.New(h.deps))
 	t.Cleanup(func() { h.ops.Wait(); h.learn.Wait(); h.srv.Close() })
 	return h
@@ -150,6 +153,7 @@ func instructionsDir(t *testing.T) string {
 	dir := t.TempDir()
 	for path, text := range map[string]string{
 		"roles/planner.md":          "ПРОМПТ ПЛАНИРОВЩИКА",
+		"roles/learning-mentor.md":  "ПРОМПТ НАСТАВНИКА",
 		"roles/generator.md":        "ПРОМПТ ГЕНЕРАТОРА",
 		"roles/work-reviewer.md":    "ПРОМПТ РЕВЬЮЕРА РАБОТ",
 		"roles/plan-reviewer.md":    "ПРОМПТ РЕВЬЮЕРА ПЛАНА",

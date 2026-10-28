@@ -49,6 +49,8 @@ func (Agent) Turn(_ context.Context, req agents.TurnRequest) (agents.TurnResult,
 			return result(thread, map[string]any{"kind": "content_review", "approved": true, "issues": []any{}})
 		}
 		return workReview(req, thread)
+	case agents.LearningMentor:
+		return tutor(req, thread)
 	}
 	return agents.TurnResult{}, errors.New("fake agent: role " + string(req.Role) + " is not scripted")
 }
@@ -219,4 +221,24 @@ func workReview(req agents.TurnRequest, thread string) (agents.TurnResult, error
 	}
 	return result(thread, map[string]any{"kind": "work_review", "verdict": verdict, "feedback": feedback,
 		"criteria": []any{map[string]any{"criterion": "Меры реагирования готовят заранее", "met": passed, "comment": ""}}})
+}
+
+// tutor echoes what the context says, so browser scenarios can see the page
+// and the progress the backend passed.
+func tutor(req agents.TurnRequest, thread string) (agents.TurnResult, error) {
+	raw, _, _ := strings.Cut(strings.TrimPrefix(req.Input, "[Контекст]\n"), "\n\n")
+	var ctx struct {
+		PageID   string `json:"pageId"`
+		Progress []struct {
+			Status string `json:"status"`
+		} `json:"progress"`
+	}
+	json.Unmarshal([]byte(raw), &ctx)
+	solved := 0
+	for _, p := range ctx.Progress {
+		if p.Status == "passed" {
+			solved++
+		}
+	}
+	return agents.TurnResult{ThreadID: thread, Text: "Наставник: вижу страницу " + ctx.PageID + "; решено вопросов: " + strconv.Itoa(solved)}, nil
 }

@@ -1,4 +1,4 @@
-.PHONY: admin build codex-image db-up down e2e test-attendance test-auth test-contracts test-generation test-learning test-planning test-telemetry up verify-codex-live verify-generation-live verify-observability verify-planning-live 
+.PHONY: admin build codex-image db-up down e2e test-attendance test-auth test-contracts test-generation test-learning test-planning test-telemetry up verify-codex-live verify-generation-live verify-mentor-live test-mentor verify-observability verify-planning-live 
 
 CODEX_IMAGE := tutor-codex:0.163.0
 export AGENT_DATA_DIR := $(CURDIR)/.data/agents
@@ -85,6 +85,14 @@ verify-observability: .env
 verify-generation-live: .env codex-image db-up
 	mkdir -p .data/live
 	set -a && . ./.env && set +a && LIVE_CODEX=1 LIVE_OUT_DIR=$(CURDIR)/.data/live go test ./backend/internal/generation/ -run Live -v -count=1 -timeout 120m
+
+# Реальный Учебный наставник: читает другую страницу курса, запись в /course отклонена.
+verify-mentor-live: .env codex-image db-up
+	set -a && . ./.env && set +a && LIVE_CODEX=1 go test ./backend/internal/mentor/ -run Live -v -count=1 -timeout 20m
+
+# Чат Учебного наставника на управляемых ответах модели.
+test-mentor: db-up
+	go test ./backend/internal/httpapi/ -run 'Mentor|Chat|NextTurn|Deleted'
 
 # Браузерные сценарии против запущенного make up.
 e2e:

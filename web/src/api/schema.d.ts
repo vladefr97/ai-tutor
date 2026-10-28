@@ -706,6 +706,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/courses/{courseId}/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                courseId: components["parameters"]["courseId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Чат с Учебным наставником на странице курса
+         * @description Отдельно от интервью; сохраняется между сессиями.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    courseId: components["parameters"]["courseId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Сообщения по порядку */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Message"][];
+                    };
+                };
+                401: components["responses"]["Error"];
+                404: components["responses"]["Error"];
+                default: components["responses"]["Error"];
+            };
+        };
+        put?: never;
+        /**
+         * Сообщение Учебному наставнику
+         * @description 409, если курс ещё не готов или наставник ещё отвечает.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    courseId: components["parameters"]["courseId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        text: string;
+                        /** @description Текущая страница курса */
+                        pageId: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Ответ готовится */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Operation"];
+                    };
+                };
+                400: components["responses"]["Error"];
+                401: components["responses"]["Error"];
+                404: components["responses"]["Error"];
+                409: components["responses"]["Error"];
+                default: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/attempts/{attemptId}": {
         parameters: {
             query?: never;
@@ -1036,7 +1120,7 @@ export interface components {
         Operation: {
             id: components["schemas"]["Id"];
             /** @enum {string} */
-            kind: "mentor_reply" | "planning" | "generation" | "review";
+            kind: "mentor_reply" | "planning" | "generation" | "review" | "tutor_chat";
             /**
              * @description failed — ошибка; готовность определяется только succeeded
              * @enum {string}

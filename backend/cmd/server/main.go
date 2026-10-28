@@ -22,6 +22,7 @@ import (
 	"github.com/vladefr97/tutor-app/backend/internal/generation"
 	"github.com/vladefr97/tutor-app/backend/internal/httpapi"
 	"github.com/vladefr97/tutor-app/backend/internal/learning"
+	"github.com/vladefr97/tutor-app/backend/internal/mentor"
 	"github.com/vladefr97/tutor-app/backend/internal/mailer"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 	"github.com/vladefr97/tutor-app/backend/internal/planning"
@@ -130,6 +131,8 @@ func main() {
 	}
 	generationSvc := &generation.Service{DB: pool, Agent: agent, Config: agentCfg, Ops: runner, Store: store, MaxStructureFixes: 3}
 	generationSvc.Register()
+	mentorSvc := &mentor.Service{DB: pool, Agent: agent, Config: agentCfg, Ops: runner, Gen: generationSvc}
+	mentorSvc.Register()
 	learningSvc := &learning.Service{DB: pool, Agent: agent, Config: agentCfg, Versions: generationSvc,
 		ReviewTimeout: duration("REVIEW_TIMEOUT", "180s")}
 	if err := learningSvc.FailInterrupted(ctx); err != nil {
@@ -137,7 +140,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	var app http.Handler = httpapi.New(httpapi.Deps{DB: pool, Auth: authSvc, Ops: runner, Planning: planningSvc, Generation: generationSvc, Learning: learningSvc,
+	var app http.Handler = httpapi.New(httpapi.Deps{DB: pool, Auth: authSvc, Ops: runner, Planning: planningSvc, Generation: generationSvc, Learning: learningSvc, Mentor: mentorSvc,
 		CookieSecure: env("COOKIE_SECURE", "false") == "true", WebDir: env("WEB_DIR", "web/dist")})
 	if os.Getenv("OBSERVABILITY_TEST_ROUTES") == "1" {
 		slog.Warn("OBSERVABILITY_TEST_ROUTES=1: /api/observability-test/* enabled")
