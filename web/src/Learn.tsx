@@ -3,6 +3,7 @@ import Markdown from 'react-markdown'
 import { useSearchParams } from 'react-router'
 import { api, type Schemas } from './api/client'
 import TutorChat from './TutorChat'
+import Practice, { type Task } from './Practice'
 
 // Public course version as in contracts/course.schema.json (CourseContent.course is untyped in OpenAPI).
 type Option = { id: string; text: string }
@@ -11,7 +12,7 @@ type Block =
   | { id: string; type: 'single_choice' | 'multiple_choice' | 'short_answer'; prompt: string; options?: Option[] }
 type Question = Exclude<Block, { type: 'markdown' }>
 type Page = { id: string; title: string; blocks: Block[] }
-type PublicCourse = { title: string; goal: string; modules: { id: string; title: string; pages: Page[] }[] }
+type PublicCourse = { title: string; goal: string; modules: { id: string; title: string; pages: Page[] }[]; practice: Task[] }
 type Attempt = Schemas['Attempt']
 
 const POLL_MS = 2000
@@ -24,9 +25,10 @@ export default function Learn({ course, readOnly }: {
   const [content, setContent] = useState<PublicCourse | undefined>(readOnly?.content as PublicCourse | undefined)
   // Questions initialise their inputs from saved attempts, so render only when both are loaded.
   const [attempts, setAttempts] = useState<Attempt[] | undefined>(readOnly?.attempts)
-  const [tab, setTab] = useState<'theory' | 'practice' | 'exam'>('theory')
   const [chatOpen, setChatOpen] = useState(false)
   const [params, setParams] = useSearchParams()
+  const tab = (params.get('tab') ?? 'theory') as 'theory' | 'practice' | 'exam'
+  const setTab = (t: string) => setParams((p) => { p.set('tab', t); return p })
 
   useEffect(() => {
     if (readOnly) return
@@ -65,8 +67,12 @@ export default function Learn({ course, readOnly }: {
           ))}
         </div>
 
-        {tab !== 'theory' ? (
-          <p className="at-muted">Скоро: {tab === 'practice' ? 'практические задания появятся здесь' : 'итоговый экзамен появится здесь'}.</p>
+        {tab === 'practice' ? (
+          <Practice courseId={course.id} tasks={content.practice ?? []} attempts={attempts} onAttempt={record}
+            pageTitle={(id) => pages.find((p) => p.id === id)?.title}
+            openPage={(id) => go(Math.max(0, pages.findIndex((p) => p.id === id)))} />
+        ) : tab === 'exam' ? (
+          <p className="at-muted">Скоро: итоговый экзамен появится здесь.</p>
         ) : (
           <>
             <details className="at-course-toc">

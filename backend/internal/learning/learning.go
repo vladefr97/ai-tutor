@@ -112,13 +112,19 @@ func (s *Service) Submit(ctx context.Context, courseID, itemID string, ans Answe
 	if err != nil {
 		return Attempt{}, err
 	}
-	q, ok := question(v.Public, itemID)
-	if !ok || !validAnswer(q, ans) {
+	q, isQuestion := question(v.Public, itemID)
+	task, isCase := practiceCase(v.Public, itemID)
+	itemType := q.Type
+	switch {
+	case isQuestion && validAnswer(q, ans):
+	case isCase && validCase(ans):
+		itemType = "case"
+	default:
 		return Attempt{}, ErrInvalid
 	}
 	raw, _ := json.Marshal(ans)
 	at, err := scan(s.DB.QueryRow(ctx, `insert into attempts (course_id, content_version_id, item_id, item_type, answer)
-		values ($1, $2, $3, $4, $5) returning `+cols, courseID, *versionID, itemID, q.Type, raw))
+		values ($1, $2, $3, $4, $5) returning `+cols, courseID, *versionID, itemID, itemType, raw))
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return Attempt{}, ErrPending
@@ -126,25 +132,43 @@ func (s *Service) Submit(ctx context.Context, courseID, itemID string, ans Answe
 	if err != nil {
 		return Attempt{}, err
 	}
+	if isCase {
+		// Practice cases get remarks by criteria only: no hints, no explanations.
+		s.reviewAsync(at.ID, courseID, v.Public.Direction, map[string]any{"mode": "case", "exam": false,
+			"task": task.Statement, "criteria": v.Private.Tasks[itemID].Criteria, "answer": *ans.Text, "profile": profile}, nil)
+		return at, nil
+	}
 	key := v.Private.Questions[itemID]
 	if q.Type != "short_answer" {
 		correct := slices.Clone(key.Correct)
 		got := slices.Clone(ans.Options)
 		slices.Sort(correct)
 		slices.Sort(got)
-		return s.grade(ctx, at.ID, slices.Equal(correct, got), nil, key)
+		return s.grade(ctx, at.ID, slices.Equal(correct, got), nil, &key)
 	}
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		s.reviewShortAnswer(at.ID, courseID, v.Public.Direction, q, key, *ans.Text, profile)
-	}()
+	s.reviewAsync(at.ID, courseID, v.Public.Direction, map[string]any{"mode": "short_answer", "exam": false,
+		"question": q.Prompt, "criteria": key.Criteria, "answer": *ans.Text, "profile": profile}, &key)
 	return at, nil
 }
 
-// grade writes the result to a pending attempt only, adding the hint after the
-// first failed learning attempt and the explanation after the second.
-func (s *Service) grade(ctx context.Context, attemptID string, passed bool, feedback *string, key course.QuestionKey) (Attempt, error) {
+// practiceCase finds a practice task of kind case; code tasks go through pull requests.
+func practiceCase(pub course.Public, id string) (course.Task, bool) {
+	for _, t := range pub.Practice {
+		if t.ID == id && t.Kind == "case" {
+			return t, true
+		}
+	}
+	return course.Task{}, false
+}
+
+func validCase(a Answer) bool {
+	return a.Text != nil && strings.TrimSpace(*a.Text) != "" && len([]rune(*a.Text)) <= 20000 && len(a.Options) == 0
+}
+
+// grade writes the result to a pending attempt only. For embedded questions
+// (key != nil) it adds the hint after the first failed learning attempt and
+// the explanation after the second.
+func (s *Service) grade(ctx context.Context, attemptID string, passed bool, feedback *string, key *course.QuestionKey) (Attempt, error) {
 	var at Attempt
 	err := pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
 		var courseID, itemID, versionID string
@@ -156,6 +180,8 @@ func (s *Service) grade(ctx context.Context, attemptID string, passed bool, feed
 		var hint, explanation *string
 		if !passed {
 			status = "failed"
+		}
+		if !passed && key != nil {
 			var failed int
 			if err := tx.QueryRow(ctx, `select count(*) from attempts where course_id = $1 and item_id = $2 and content_version_id = $3
 				and mode = 'learning' and status = 'failed'`, courseID, itemID, versionID).Scan(&failed); err != nil {
@@ -180,25 +206,28 @@ type workReview struct {
 	Feedback string `json:"feedback"`
 }
 
-// reviewShortAnswer asks the Work reviewer in a fresh session with only this
-// question, its criteria and the answer.
-func (s *Service) reviewShortAnswer(attemptID, courseID, direction string, q course.Block, key course.QuestionKey, text string, profile json.RawMessage) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.ReviewTimeout)
-	defer cancel()
-	res, err := s.review(ctx, courseID, direction, map[string]any{"mode": "short_answer", "exam": false,
-		"question": q.Prompt, "criteria": key.Criteria, "answer": text, "profile": profile})
-	if err != nil {
-		slog.Error("short answer review", "attempt", attemptID, "err", err)
-		msg := "Не удалось проверить ответ. Отправьте его ещё раз."
-		s.DB.Exec(context.Background(), `update attempts set status = 'error', feedback = $2, graded_at = now()
-			where id = $1 and status = 'pending'`, attemptID, msg)
-		return
-	}
-	raw, _ := json.Marshal(res)
-	s.DB.Exec(context.Background(), `update attempts set review = $2 where id = $1 and status = 'pending'`, attemptID, raw)
-	if _, err := s.grade(context.Background(), attemptID, res.Verdict == "passed", &res.Feedback, key); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		slog.Error("short answer grade", "attempt", attemptID, "err", err)
-	}
+// reviewAsync asks the Work reviewer in a fresh session with only this work's
+// input and grades the attempt when the verdict arrives.
+func (s *Service) reviewAsync(attemptID, courseID, direction string, input map[string]any, key *course.QuestionKey) {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), s.ReviewTimeout)
+		defer cancel()
+		res, err := s.review(ctx, courseID, direction, input)
+		if err != nil {
+			slog.Error("work review", "attempt", attemptID, "err", err)
+			msg := "Не удалось проверить ответ. Отправьте его ещё раз."
+			s.DB.Exec(context.Background(), `update attempts set status = 'error', feedback = $2, graded_at = now()
+				where id = $1 and status = 'pending'`, attemptID, msg)
+			return
+		}
+		raw, _ := json.Marshal(res)
+		s.DB.Exec(context.Background(), `update attempts set review = $2 where id = $1 and status = 'pending'`, attemptID, raw)
+		if _, err := s.grade(context.Background(), attemptID, res.Verdict == "passed", &res.Feedback, key); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			slog.Error("work review grade", "attempt", attemptID, "err", err)
+		}
+	}()
 }
 
 func (s *Service) review(ctx context.Context, courseID, direction string, input map[string]any) (workReview, error) {
