@@ -14,7 +14,10 @@ import (
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 )
 
-const KindMentorReply = "mentor_reply"
+const (
+	KindMentorReply = "mentor_reply"
+	KindPlanning    = "planning"
+)
 
 var ErrWrongState = errors.New("action is not allowed in the current course state")
 
@@ -41,6 +44,7 @@ type Service struct {
 
 func (s *Service) Register() {
 	s.Ops.Handle(KindMentorReply, s.mentorReply)
+	s.Ops.Handle(KindPlanning, s.planning)
 }
 
 type replyInput struct {
@@ -64,7 +68,7 @@ func (s *Service) LearnerMessage(ctx context.Context, courseID, text string) (op
 	if err := tx.QueryRow(ctx, `select status from courses where id = $1 for update`, courseID).Scan(&status); err != nil {
 		return ops.Op{}, err
 	}
-	if status != "interview" {
+	if status != "interview" && status != "plan_ready" {
 		return ops.Op{}, ErrWrongState
 	}
 	op, err := s.Ops.Start(ctx, tx, courseID, KindMentorReply, replyInput{Text: text})
@@ -82,22 +86,35 @@ func (s *Service) LearnerMessage(ctx context.Context, courseID, text string) (op
 }
 
 // SkipInterview keeps a goal the learner already named, otherwise sets the
-// direction basics, fills a default profile and moves on to planning.
-func (s *Service) SkipInterview(ctx context.Context, courseID string) error {
+// direction basics, fills missing profile fields with defaults and starts planning.
+func (s *Service) SkipInterview(ctx context.Context, courseID string) (ops.Op, error) {
 	def, _ := json.Marshal(DefaultProfile())
-	tag, err := s.DB.Exec(ctx, `update courses set status = 'planning',
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return ops.Op{}, err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `update courses set status = 'planning',
 		goal = coalesce(goal, 'Основы ' || $2::text),
 		profile = $3::jsonb || jsonb_strip_nulls(coalesce(profile, '{}'))
 		where id = $1 and status = 'interview'
 		and not exists (select 1 from operations where course_id = $1 and status in ('queued', 'running'))`,
 		courseID, DirectionTitles[s.direction(ctx, courseID)], def)
 	if err != nil {
-		return err
+		return ops.Op{}, err
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrWrongState
+		return ops.Op{}, ErrWrongState
 	}
-	return nil
+	op, err := s.Ops.Start(ctx, tx, courseID, KindPlanning, planningInput{Skipped: true})
+	if err != nil {
+		return op, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return op, err
+	}
+	s.Ops.Launch(op)
+	return op, nil
 }
 
 func (s *Service) direction(ctx context.Context, courseID string) string {
@@ -144,24 +161,59 @@ func agentFailure(err error) error {
 	return &ops.Failure{Code: "agent_failed", Message: "Наставник не ответил. Нажмите «Повторить».", Err: err}
 }
 
-func (s *Service) mentorReply(ctx context.Context, op ops.Op) error {
+func (s *Service) mentorReply(ctx context.Context, op ops.Op) (*ops.Next, error) {
 	var in replyInput
 	if err := json.Unmarshal(op.Input, &in); err != nil {
-		return err
+		return nil, err
 	}
-	direction := s.direction(ctx, op.CourseID)
-	ss, err := s.plannerSession(ctx, op.CourseID)
+	input := in.Text
+	if in.Start {
+		input = fmt.Sprintf("[Начало интервью]\nНаправление: %s", s.direction(ctx, op.CourseID))
+	}
+	var turn interviewTurn
+	if err := s.plannerTurn(ctx, op.CourseID, input, agents.KindInterviewTurn, &turn); err != nil {
+		return nil, err
+	}
+	var next *ops.Next
+	err := pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
+		var status string
+		if err := tx.QueryRow(ctx, `select status from courses where id = $1 for update`, op.CourseID).Scan(&status); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `insert into messages (course_id, author, text) values ($1, 'mentor', $2)`, op.CourseID, turn.Message); err != nil {
+			return err
+		}
+		if status != "interview" && status != "plan_ready" {
+			return nil
+		}
+		// In the interview readyForPlan means the goal is clear; in the plan
+		// discussion it means the learner agreed on changes: both need a new,
+		// reviewed version.
+		profile, _ := json.Marshal(turn.Profile)
+		next = nil
+		newStatus := status
+		if turn.ReadyForPlan {
+			newStatus = "planning"
+			next = &ops.Next{Kind: KindPlanning, Input: planningInput{Discussion: status == "plan_ready"}}
+		}
+		_, err := tx.Exec(ctx, `update courses set goal = coalesce($2, goal), profile = $3, status = $4 where id = $1`,
+			op.CourseID, turn.Goal, profile, newStatus)
+		return err
+	})
+	return next, err
+}
+
+// plannerTurn runs one turn in the course's Planner session and decodes the result.
+func (s *Service) plannerTurn(ctx context.Context, courseID, input, kind string, into any) error {
+	ss, err := s.plannerSession(ctx, courseID)
 	if err != nil {
 		return err
 	}
 	req := agents.TurnRequest{Role: agents.Planner, SessionDir: ss.Dir, Model: ss.Model,
-		OutputSchema: agents.OutputSchema(agents.KindInterviewTurn), Input: in.Text}
-	if in.Start {
-		req.Input = fmt.Sprintf("[Начало интервью]\nНаправление: %s", direction)
-	}
+		OutputSchema: agents.OutputSchema(kind), Input: input}
 	if ss.ThreadID != nil {
 		req.ThreadID = *ss.ThreadID
-	} else if req.Instructions, err = s.Config.Instructions(agents.Planner, direction); err != nil {
+	} else if req.Instructions, err = s.Config.Instructions(agents.Planner, s.direction(ctx, courseID)); err != nil {
 		return err
 	}
 	res, err := s.Agent.Turn(ctx, req)
@@ -173,21 +225,8 @@ func (s *Service) mentorReply(ctx context.Context, op ops.Op) error {
 	if err != nil {
 		return agentFailure(err)
 	}
-	var turn interviewTurn
-	if err := agents.ParseResult(agents.KindInterviewTurn, res.Text, &turn); err != nil {
+	if err := agents.ParseResult(kind, res.Text, into); err != nil {
 		return agentFailure(err)
 	}
-	return pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `insert into messages (course_id, author, text) values ($1, 'mentor', $2)`, op.CourseID, turn.Message); err != nil {
-			return err
-		}
-		profile, _ := json.Marshal(turn.Profile)
-		next := "interview"
-		if turn.ReadyForPlan {
-			next = "planning"
-		}
-		_, err := tx.Exec(ctx, `update courses set goal = coalesce($2, goal), profile = $3, status = $4
-			where id = $1 and status = 'interview'`, op.CourseID, turn.Goal, profile, next)
-		return err
-	})
+	return nil
 }

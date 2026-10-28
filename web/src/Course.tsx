@@ -6,6 +6,7 @@ import { directionIcons } from './icons'
 type Course = Schemas['Course']
 type Operation = Schemas['Operation']
 type Message = Schemas['Message']
+type PlanVersion = Schemas['PlanVersion']
 
 export const mentorNames: Record<Schemas['DirectionId'], { name: string; short: string }> = {
   python: { name: 'Python Developer', short: 'Python' },
@@ -34,12 +35,14 @@ export default function CoursePage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [op, setOp] = useState<Operation | null>(null)
   const [notice, setNotice] = useState('')
+  const [plan, setPlan] = useState<PlanVersion>()
 
   const load = useCallback(async () => {
     const [c, m] = await Promise.all([
       api('get', '/courses/{courseId}', undefined, { courseId: id }),
       api('get', '/courses/{courseId}/messages', undefined, { courseId: id }),
     ])
+    if (c.status === 'plan_ready') setPlan(await api('get', '/courses/{courseId}/plan', undefined, { courseId: id }))
     setCourse(c)
     setMessages(m)
     setOp(c.operation ?? null)
@@ -52,8 +55,10 @@ export default function CoursePage() {
     if (!op || !active(op)) return
     const t = setTimeout(async () => {
       const next = await api('get', '/operations/{operationId}', undefined, { operationId: op.id })
+      // A finished operation may be followed by a chained one (interview → planning):
+      // the course reports whichever is current now.
       if (active(next)) setOp(next)
-      else { await load(); setOp(next) }
+      else await load()
     }, POLL_MS)
     return () => clearTimeout(t)
   }, [op, load])
@@ -82,8 +87,26 @@ export default function CoursePage() {
     setOp(c.operation ?? null)
   }
 
+  async function confirm() {
+    if (!plan) return
+    setNotice('')
+    try {
+      const c = await api('post', '/courses/{courseId}/plan/confirm', { planVersionId: plan.id }, { courseId: id })
+      setCourse(c)
+      setOp(c.operation ?? null)
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 409)) throw e
+      await load()
+      setNotice('План обновился — проверьте новую версию')
+    }
+  }
+
   if (!course) return null
   const mentor = mentorNames[course.direction]
+  const chat = (placeholder: string, onSkip?: () => void) => (
+    <Chat short={mentor.short} messages={messages} op={op} notice={notice} placeholder={placeholder}
+      onSend={send} onRetry={retry} onSkip={onSkip} />
+  )
   return (
     <main className="at-main">
       <Link className="at-back" to="/">← Все наставники</Link>
@@ -94,18 +117,36 @@ export default function CoursePage() {
           <small>Ваш наставник · подготовка курса</small>
         </div>
       </div>
-      {course.status === 'interview' ? (
-        <Chat short={mentor.short} messages={messages} op={op} notice={notice} onSend={send} onRetry={retry} onSkip={skip} />
-      ) : (
-        <Stage status={course.status} />
+      {course.status === 'interview' && chat('Расскажите о вашей цели…', skip)}
+      {course.status === 'planning' && <PlanningStages op={op} onRetry={retry} />}
+      {course.status === 'plan_ready' && plan && (
+        <>
+          <Plan version={plan} busy={active(op)} onConfirm={confirm} />
+          {chat('Что изменить в плане? Или задайте вопрос…')}
+        </>
+      )}
+      {course.status === 'generating' && (
+        <Waiting title="Готовим курс…" text="Собираем материалы по утверждённому плану. Это займёт несколько минут." />
+      )}
+      {course.status === 'awaiting_github' && (
+        <section className="at-generation">
+          <h1>Подключите GitHub</h1>
+          <p className="at-subtitle">
+            Практика по {mentor.short} ведётся в вашем учебном репозитории на GitHub. Подключение аккаунта появится
+            следующим шагом — после него мы подготовим курс и репозиторий.
+          </p>
+        </section>
+      )}
+      {!['interview', 'planning', 'plan_ready', 'generating', 'awaiting_github'].includes(course.status) && (
+        <Waiting title={statusNames[course.status]} text="" />
       )}
     </main>
   )
 }
 
 function Chat(props: {
-  short: string; messages: Message[]; op: Operation | null; notice: string
-  onSend: (t: string) => Promise<boolean>; onRetry: () => void; onSkip: () => void
+  short: string; messages: Message[]; op: Operation | null; notice: string; placeholder: string
+  onSend: (t: string) => Promise<boolean>; onRetry: () => void; onSkip?: () => void
 }) {
   const { short, messages, op, notice } = props
   const [text, setText] = useState('')
@@ -140,7 +181,7 @@ function Chat(props: {
       <div ref={end} />
       <form className="at-composer" onSubmit={submit}>
         <textarea
-          aria-label="Ваш ответ наставнику" placeholder="Расскажите о вашей цели…" rows={2} required
+          aria-label="Ваш ответ наставнику" placeholder={props.placeholder} rows={2} required
           value={text} onChange={(e) => setText(e.target.value)} disabled={busy}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) submit(e) }}
         />
@@ -149,20 +190,96 @@ function Chat(props: {
           <button className="at-send" aria-label="Отправить сообщение" disabled={busy || !text.trim()}>↑</button>
         </div>
       </form>
-      <button className="at-quiet at-skip" onClick={props.onSkip} disabled={busy}>
-        Пропустить интервью и начать с основ →
-      </button>
+      {props.onSkip && (
+        <button className="at-quiet at-skip" onClick={props.onSkip} disabled={busy}>
+          Пропустить интервью и начать с основ →
+        </button>
+      )}
     </>
   )
 }
 
-// ponytail: only the planning stage for now; plan review/discussion screens come with #13.
-function Stage({ status }: { status: Course['status'] }) {
+const stages: { id: NonNullable<Operation['stage']>; name: string }[] = [
+  { id: 'drafting_plan', name: 'Составляем план' },
+  { id: 'reviewing_plan', name: 'Проверяем план' },
+  { id: 'revising_plan', name: 'Вносим исправления' },
+]
+
+function PlanningStages({ op, onRetry }: { op: Operation | null; onRetry: () => void }) {
+  const current = Math.max(0, stages.findIndex((s) => s.id === op?.stage))
+  return (
+    <section className="at-generation">
+      {op?.status !== 'failed' && <div className="at-spinner" aria-hidden="true" />}
+      <h1>Готовим ваш план</h1>
+      <p className="at-subtitle">Наставник составляет учебный план по вашей цели. Это займёт пару минут.</p>
+      <ol>
+        {stages.map((s, i) => (
+          <li key={s.id} className={i < current ? 'at-done' : i === current ? 'at-current' : ''} aria-current={i === current ? 'step' : undefined}>
+            <span>{i < current ? '✓' : i === current ? '◌' : '·'}</span>
+            {s.name}
+          </li>
+        ))}
+      </ol>
+      {op?.status === 'failed' && (
+        <div className="at-op-error" role="alert">
+          <span>{op.error?.message ?? 'Не получилось подготовить план'}</span>
+          <button className="at-secondary" onClick={onRetry}>Повторить</button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function Plan({ version, busy, onConfirm }: { version: PlanVersion; busy: boolean; onConfirm: () => void }) {
+  const { plan } = version
+  return (
+    <>
+      <div className="at-message">
+        <div className="at-message-label">Наставник</div>
+        <p>{version.explanation}</p>
+      </div>
+      <section className="at-plan" aria-label="План курса">
+        <div className="at-eyebrow">План курса</div>
+        <h2 className="at-plan-title">{plan.title}</h2>
+        <p className="at-muted at-small">Ваша цель: {plan.goal}</p>
+        <div className="at-meta">
+          <span>Модулей: {plan.modules.length}</span>
+          <span>{plan.hasPractice ? 'С практикой' : 'Без практики'}</span>
+          <span>Итоговый экзамен</span>
+        </div>
+        <div className="at-toc">
+          {plan.modules.map((m, i) => (
+            <details key={i} className="at-module">
+              <summary>
+                <span className="at-number">{String(i + 1).padStart(2, '0')}</span>
+                <span className="at-module-title">{m.title}</span>
+                <span className="at-chevron" aria-hidden="true">›</span>
+              </summary>
+              <div className="at-module-body">
+                <ul>{m.topics.map((t) => <li key={t}>{t}</li>)}</ul>
+                {m.practice.length > 0 && (
+                  <p><b>Практика</b><br />{m.practice.join('; ')}</p>
+                )}
+                <p><b>Результат</b><br />{m.outcome}</p>
+              </div>
+            </details>
+          ))}
+        </div>
+        <p className="at-small at-muted at-exam"><b>Итоговый экзамен.</b> {plan.exam}</p>
+        <div className="at-actions">
+          <button className="at-primary" onClick={onConfirm} disabled={busy}>Подтвердить план и создать курс →</button>
+        </div>
+      </section>
+    </>
+  )
+}
+
+function Waiting({ title, text }: { title: string; text: string }) {
   return (
     <section className="at-generation">
       <div className="at-spinner" aria-hidden="true" />
-      <h1>{statusNames[status]}</h1>
-      <p className="at-subtitle">Наставник готовит учебный план по вашей цели. Это займёт пару минут.</p>
+      <h1>{title}</h1>
+      {text && <p className="at-subtitle">{text}</p>}
     </section>
   )
 }

@@ -110,7 +110,7 @@ func newHarness(t *testing.T) *harness {
 	h.agent = &scriptedAgent{}
 	h.ops = &ops.Runner{DB: pool, Timeout: time.Minute}
 	cfg := agents.Config{InstructionsDir: instructionsDir(t), SessionsDir: t.TempDir(),
-		Models: map[agents.Role]string{agents.Planner: "planner-model"}}
+		Models: map[agents.Role]string{agents.Planner: "planner-model", agents.PlanReviewer: "reviewer-model"}}
 	plan := &planning.Service{DB: pool, Agent: h.agent, Config: cfg, Ops: h.ops}
 	plan.Register()
 	h.deps = httpapi.Deps{DB: pool, Auth: h.auth, Ops: h.ops, Planning: plan}
@@ -133,6 +133,8 @@ func instructionsDir(t *testing.T) string {
 	dir := t.TempDir()
 	for path, text := range map[string]string{
 		"roles/planner.md":          "ПРОМПТ ПЛАНИРОВЩИКА",
+		"roles/plan-reviewer.md":    "ПРОМПТ РЕВЬЮЕРА ПЛАНА",
+		"directions/git/base.md":    "ОСНОВА GIT",
 		"directions/pm/base.md":     "ОСНОВА PM",
 		"directions/python/base.md": "ОСНОВА PYTHON",
 	} {

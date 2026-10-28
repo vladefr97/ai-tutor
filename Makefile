@@ -47,11 +47,15 @@ test-attendance: db-up
 
 # Интервью с Наставником-планировщиком на управляемых ответах модели.
 test-planning: db-up
-	go test ./backend/internal/agents/ ./backend/internal/httpapi/ -run 'Interview|Skipping|Agent|Output|Mentor|Restart|OutputSchema|ParseResult'
+	go test ./backend/internal/agents/ ./backend/internal/httpapi/ -run 'Interview|Skip|Agent|Output|Mentor|Restart|Plan|Review|Goal|Confirm|GitHub'
 
 # Реальный вызов модели через контейнер Codex (нужен OPENAI_API_KEY в .env).
 verify-codex-live: .env codex-image
 	set -a && . ./.env && set +a && LIVE_CODEX=1 go test ./backend/internal/agents/codex/ -run Live -v -count=1 -timeout 10m
+
+# Реальные планировщик и ревьюер плана на промптах agent-config/ (пропуск интервью → одобренный план).
+verify-planning-live: .env codex-image db-up
+	set -a && . ./.env && set +a && LIVE_CODEX=1 go test ./backend/internal/planning/ -run Live -v -count=1 -timeout 30m
 
 # Браузерные сценарии против запущенного make up.
 e2e:

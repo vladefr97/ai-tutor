@@ -56,7 +56,13 @@ func errString(err error) string {
 	return err.Error()
 }
 
-type Handler func(ctx context.Context, op Op) error
+// Next is an operation to start right after the current one succeeds.
+type Next struct {
+	Kind  string
+	Input any
+}
+
+type Handler func(ctx context.Context, op Op) (*Next, error)
 
 type Runner struct {
 	DB       *pgxpool.Pool
@@ -130,15 +136,33 @@ func (r *Runner) run(op Op) {
 	op.Status = "running"
 	h, ok := r.handlers[op.Kind]
 	var err error
+	var next *Next
 	if !ok {
 		err = errors.New("no handler for " + op.Kind)
 	} else {
-		err = h(ctx, op)
+		next, err = h(ctx, op)
 	}
 	if err == nil {
-		_, err = r.DB.Exec(context.Background(), `update operations set status = 'succeeded', updated_at = now() where id = $1`, op.ID)
+		// The next operation is created in the same transaction, so the course
+		// never looks idle between the two.
+		var nextOp *Op
+		err = pgx.BeginFunc(context.Background(), r.DB, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(context.Background(), `update operations set status = 'succeeded', updated_at = now() where id = $1`, op.ID); err != nil {
+				return err
+			}
+			if next == nil {
+				return nil
+			}
+			o, err := r.Start(context.Background(), tx, op.CourseID, next.Kind, next.Input)
+			nextOp = &o
+			return err
+		})
 		if err != nil {
 			slog.Error("operation finish", "op", op.ID, "err", err)
+			return
+		}
+		if nextOp != nil {
+			r.Launch(*nextOp)
 		}
 		return
 	}

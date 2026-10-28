@@ -96,3 +96,30 @@ svg{display:block}
 .at-student{width:100%;border-bottom:1px solid var(--line);padding:22px 0;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:20px}
 .at-student small{display:block;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
 @media(max-width:650px){.at-message.at-user{max-width:92%}.at-generation{padding:35px 0}}
+
+/* Plan (mockup screen=plan) and preparation stages. */
+.at-muted{color:var(--muted)}
+.at-small{font-size:12px}
+.at-plan{margin-top:30px;border:1px solid #3b3e42;border-radius:14px;padding:30px;background:#1d1f21;overflow-wrap:anywhere}
+.at-plan-title{font-size:27px;margin-bottom:10px}
+.at-meta{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:22px 0}
+.at-toc{border-top:1px solid var(--line);margin-top:22px}
+.at-module{border-bottom:1px solid var(--line)}
+.at-module summary{list-style:none;display:flex;align-items:center;gap:18px;padding:20px 0;cursor:pointer}
+.at-module summary::-webkit-details-marker{display:none}
+.at-number{color:#8d9399;font:12px ui-monospace,monospace;flex-shrink:0}
+.at-module-title{flex:1;min-width:0;font-size:14px;font-weight:500}
+.at-chevron{color:#9ca2a8;font-size:18px;transition:transform .15s}
+.at-module[open]>summary .at-chevron{transform:rotate(90deg)}
+.at-module-body{padding:0 24px 22px 36px;font-size:13px;color:#adb3b9}
+.at-module-body ul{padding-left:17px}
+.at-module-body li{margin:8px 0}
+.at-module-body p{margin:13px 0}
+.at-module-body b,.at-exam b{color:#d9dfe4;font-weight:500}
+.at-exam{margin-top:20px}
+.at-actions{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:27px}
+.at-generation ol{list-style:none;padding:0;margin:34px 0}
+.at-generation li{padding:14px 0;color:#858b91;display:flex;gap:16px}
+.at-generation li.at-done{color:#c6ddcf}
+.at-generation li.at-current{color:#e8ecef}
+@media(max-width:650px){.at-plan{padding:20px}.at-plan-title{font-size:23px}.at-module summary{gap:12px}.at-module-body{padding-left:28px;padding-right:0}.at-actions .at-primary{max-width:100%}}

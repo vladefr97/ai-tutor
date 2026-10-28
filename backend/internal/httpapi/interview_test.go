@@ -145,9 +145,14 @@ func TestInterviewRunsThroughThePlannerSession(t *testing.T) {
 			}
 		}
 	}
-	reqs := h.agent.all()
+	var reqs []agents.TurnRequest
+	for _, r := range h.agent.all() {
+		if strings.Contains(string(r.OutputSchema), `"interview_turn"`) {
+			reqs = append(reqs, r)
+		}
+	}
 	if len(reqs) != 3 {
-		t.Fatalf("agent turns: %d", len(reqs))
+		t.Fatalf("interview turns: %d", len(reqs))
 	}
 	first := reqs[0]
 	if first.Role != agents.Planner || first.Model != "planner-model" || first.ThreadID != "" ||

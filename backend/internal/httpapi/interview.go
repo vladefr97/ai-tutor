@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -64,7 +65,7 @@ func (s *server) skipInterview(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if opError(w, r, s.Planning.SkipInterview(r.Context(), c.ID)) {
+	if _, err := s.Planning.SkipInterview(r.Context(), c.ID); opError(w, r, err) {
 		return
 	}
 	if c, ok = s.ownCourse(w, r); ok {
@@ -97,10 +98,60 @@ func opError(w http.ResponseWriter, r *http.Request, err error) bool {
 		writeError(w, http.StatusConflict, "busy", "Наставник ещё отвечает")
 	case errors.Is(err, ops.ErrNotRetry):
 		writeError(w, http.StatusConflict, "not_failed", "Повторить можно только операцию с ошибкой")
+	case errors.Is(err, planning.ErrVersionMismatch):
+		writeError(w, http.StatusConflict, "version_mismatch", "Подтвердить можно только текущую одобренную версию плана")
 	case errors.Is(err, planning.ErrWrongState):
 		writeError(w, http.StatusConflict, "wrong_state", "Сейчас это действие недоступно")
 	default:
 		internalError(w, r, err)
 	}
 	return true
+}
+
+type planVersion struct {
+	ID          string          `json:"id"`
+	Number      int             `json:"number"`
+	Plan        json.RawMessage `json:"plan"`
+	Explanation string          `json:"explanation"`
+	Confirmed   bool            `json:"confirmed"`
+	CreatedAt   time.Time       `json:"createdAt"`
+}
+
+// getPlan returns the latest version approved by the Plan reviewer; the
+// review itself is never shown to the learner.
+func (s *server) getPlan(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.ownCourse(w, r)
+	if !ok {
+		return
+	}
+	var v planVersion
+	err := s.DB.QueryRow(r.Context(), `select id, number, plan, explanation, coalesce(id = $2, false), created_at from plan_versions
+		where course_id = $1 and approved order by number desc limit 1`, c.ID, c.ConfirmedPlanVersionID).
+		Scan(&v.ID, &v.Number, &v.Plan, &v.Explanation, &v.Confirmed, &v.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "no_plan", "План ещё готовится")
+		return
+	}
+	if err != nil {
+		internalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (s *server) confirmPlan(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.ownCourse(w, r)
+	if !ok {
+		return
+	}
+	var in struct{ PlanVersionID string }
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if opError(w, r, s.Planning.Confirm(r.Context(), c.ID, in.PlanVersionID)) {
+		return
+	}
+	if c, ok = s.ownCourse(w, r); ok {
+		writeJSON(w, http.StatusOK, c)
+	}
 }

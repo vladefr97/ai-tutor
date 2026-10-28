@@ -45,11 +45,11 @@ func (s *server) directions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, directions)
 }
 
-const courseColumns = `id, direction, status, goal, profile, created_at`
+const courseColumns = `id, direction, status, goal, profile, created_at, confirmed_plan_version_id`
 
 func scanCourse(row pgx.Row) (course, error) {
 	var c course
-	err := row.Scan(&c.ID, &c.Direction, &c.Status, &c.Goal, &c.Profile, &c.CreatedAt)
+	err := row.Scan(&c.ID, &c.Direction, &c.Status, &c.Goal, &c.Profile, &c.CreatedAt, &c.ConfirmedPlanVersionID)
 	c.PracticeAccess.State = "github_not_connected"
 	if c.Direction == "pm" {
 		c.PracticeAccess.State = "not_required"

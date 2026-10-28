@@ -51,6 +51,8 @@ func New(d Deps) http.Handler {
 	mux.Handle("GET /api/courses/{courseId}/messages", s.learner(s.listMessages))
 	mux.Handle("POST /api/courses/{courseId}/messages", s.learner(s.postMessage))
 	mux.Handle("POST /api/courses/{courseId}/interview/skip", s.learner(s.skipInterview))
+	mux.Handle("GET /api/courses/{courseId}/plan", s.learner(s.getPlan))
+	mux.Handle("POST /api/courses/{courseId}/plan/confirm", s.learner(s.confirmPlan))
 	mux.Handle("GET /api/operations/{operationId}", s.learner(s.getOperation))
 	mux.Handle("POST /api/operations/{operationId}/retry", s.learner(s.retryOperation))
 	mux.Handle("GET /api/teacher/learners", s.teacher(s.listLearners))
