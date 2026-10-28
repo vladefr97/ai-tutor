@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -24,20 +25,25 @@ func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), `select id, author, text, created_at from messages where course_id = $1 order by created_at, id`, c.ID)
+	list, err := s.messages(r.Context(), c.ID)
 	if err != nil {
 		internalError(w, r, err)
 		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// messages is the interview and plan discussion of a course.
+func (s *server) messages(ctx context.Context, courseID string) ([]message, error) {
+	rows, err := s.DB.Query(ctx, `select id, author, text, created_at from messages where course_id = $1 order by created_at, id`, courseID)
+	if err != nil {
+		return nil, err
 	}
 	list, err := pgx.CollectRows(rows, pgx.RowToStructByPos[message])
-	if err != nil {
-		internalError(w, r, err)
-		return
-	}
 	if list == nil {
 		list = []message{}
 	}
-	writeJSON(w, http.StatusOK, list)
+	return list, err
 }
 
 func (s *server) postMessage(w http.ResponseWriter, r *http.Request) {

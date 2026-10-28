@@ -878,6 +878,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teacher/courses/{courseId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                courseId: components["parameters"]["courseId"];
+            };
+            cookie?: never;
+        };
+        /** Курс ученика в режиме просмотра (только преподаватель) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    courseId: components["parameters"]["courseId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Курс со всей историей */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TeacherCourse"];
+                    };
+                };
+                401: components["responses"]["Error"];
+                403: components["responses"]["Error"];
+                404: components["responses"]["Error"];
+                default: components["responses"]["Error"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teacher/attendance": {
         parameters: {
             query?: never;
@@ -961,6 +1005,61 @@ export interface components {
             email: string;
             /** Format: date-time */
             createdAt: string;
+            courses: components["schemas"]["TeacherCourseSummary"][];
+        };
+        TeacherCourseSummary: {
+            id: components["schemas"]["Id"];
+            direction: components["schemas"]["DirectionId"];
+            status: string;
+            goal: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            progress: components["schemas"]["Progress"];
+        };
+        /** @description По опубликованной версии курса; до публикации всё 0 */
+        Progress: {
+            questionsTotal: number;
+            /** @description Встроенные вопросы с зачтённой учебной попыткой */
+            questionsPassed: number;
+            practiceTotal: number;
+            practicePassed: number;
+        };
+        /**
+         * @description Версия плана для преподавателя. В отличие от ученика, преподаватель видит
+         *     все версии и результат Ревьюера плана: это история согласования плана.
+         */
+        TeacherPlanVersion: {
+            id: components["schemas"]["Id"];
+            number: number;
+            plan: components["schemas"]["Plan"];
+            explanation: string;
+            approved: boolean;
+            /** @description Результат Ревьюера плана (plan_review из agent-result.schema.json); null — ревью не завершено */
+            review: {
+                [key: string]: unknown;
+            } | null;
+            confirmed: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        /** @description Всё о курсе ученика только для просмотра */
+        TeacherCourse: {
+            learner: {
+                id: components["schemas"]["Id"];
+                /** Format: email */
+                email: string;
+            };
+            course: components["schemas"]["Course"];
+            progress: components["schemas"]["Progress"];
+            /** @description Интервью и обсуждение плана */
+            messages: components["schemas"]["Message"][];
+            planVersions: components["schemas"]["TeacherPlanVersion"][];
+            content: components["schemas"]["CourseContent"] | null;
+            attempts: components["schemas"]["Attempt"][];
+            /** @description Все фоновые операции курса, включая ошибки */
+            operations: components["schemas"]["Operation"][];
+            /** @description Переписка с Учебным наставником */
+            chat: components["schemas"]["Message"][];
         };
         /** @enum {string} */
         DirectionId: "python" | "git" | "pm";

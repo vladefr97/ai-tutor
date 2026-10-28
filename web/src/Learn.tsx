@@ -15,18 +15,23 @@ type Attempt = Schemas['Attempt']
 
 const POLL_MS = 2000
 
-export default function Learn({ course }: { course: Schemas['Course'] }) {
-  const [content, setContent] = useState<PublicCourse>()
+// readOnly shows a learner's course to the teacher: data comes preloaded, nothing can be sent.
+export default function Learn({ course, readOnly }: {
+  course: Schemas['Course']
+  readOnly?: { content: unknown; attempts: Attempt[] }
+}) {
+  const [content, setContent] = useState<PublicCourse | undefined>(readOnly?.content as PublicCourse | undefined)
   // Questions initialise their inputs from saved attempts, so render only when both are loaded.
-  const [attempts, setAttempts] = useState<Attempt[]>()
+  const [attempts, setAttempts] = useState<Attempt[] | undefined>(readOnly?.attempts)
   const [tab, setTab] = useState<'theory' | 'practice' | 'exam'>('theory')
   const [chatOpen, setChatOpen] = useState(false)
   const [params, setParams] = useSearchParams()
 
   useEffect(() => {
+    if (readOnly) return
     api('get', '/courses/{courseId}/content', undefined, { courseId: course.id }).then((c) => setContent(c.course as unknown as PublicCourse))
     api('get', '/courses/{courseId}/attempts', undefined, { courseId: course.id }).then(setAttempts)
-  }, [course.id])
+  }, [course.id, readOnly])
 
   const pages = useMemo(() => content?.modules.flatMap((m) => m.pages) ?? [], [content])
   const questions = useMemo(() => pages.flatMap((p) => p.blocks.filter((b): b is Question => b.type !== 'markdown')), [pages])
@@ -48,7 +53,7 @@ export default function Learn({ course }: { course: Schemas['Course'] }) {
             <h1>{content.title}</h1>
             <p className="at-muted at-small">Цель: {content.goal}</p>
           </div>
-          <button className="at-secondary at-chat-launch" onClick={() => setChatOpen(true)}>Чат с наставником</button>
+          {!readOnly && <button className="at-secondary at-chat-launch" onClick={() => setChatOpen(true)}>Чат с наставником</button>}
         </div>
         <div className="at-progress" aria-hidden="true"><span style={{ width: `${questions.length ? (100 * done) / questions.length : 0}%` }} /></div>
         <p className="at-small at-muted">Вопросов решено: {done} из {questions.length}</p>
@@ -91,7 +96,7 @@ export default function Learn({ course }: { course: Schemas['Course'] }) {
                 b.type === 'markdown' ? (
                   <div key={b.id} className="at-md"><Markdown>{b.markdown}</Markdown></div>
                 ) : (
-                  <QuestionBlock key={b.id} courseId={course.id} q={b}
+                  <QuestionBlock key={b.id} courseId={course.id} q={b} readOnly={!!readOnly}
                     attempts={attempts.filter((a) => a.itemId === b.id)} onAttempt={record} />
                 ),
               )}
@@ -104,20 +109,22 @@ export default function Learn({ course }: { course: Schemas['Course'] }) {
           </>
         )}
       </div>
-      {chatOpen && <div className="at-chat-shade" onClick={() => setChatOpen(false)} />}
-      <aside className="at-chat-panel" aria-label="Чат с наставником">
-        <div className="at-chat-head">
-          <h2>Наставник</h2>
-          <button className="at-quiet at-chat-close" onClick={() => setChatOpen(false)}>Закрыть</button>
-        </div>
-        <p className="at-chat-lock">Чат с наставником скоро появится.</p>
-      </aside>
+      {!readOnly && chatOpen && <div className="at-chat-shade" onClick={() => setChatOpen(false)} />}
+      {!readOnly && (
+        <aside className="at-chat-panel" aria-label="Чат с наставником">
+          <div className="at-chat-head">
+            <h2>Наставник</h2>
+            <button className="at-quiet at-chat-close" onClick={() => setChatOpen(false)}>Закрыть</button>
+          </div>
+          <p className="at-chat-lock">Чат с наставником скоро появится.</p>
+        </aside>
+      )}
     </div>
   )
 }
 
-function QuestionBlock({ courseId, q, attempts, onAttempt }: {
-  courseId: string; q: Question; attempts: Attempt[]; onAttempt: (a: Attempt) => void
+function QuestionBlock({ courseId, q, attempts, onAttempt, readOnly }: {
+  courseId: string; q: Question; attempts: Attempt[]; onAttempt: (a: Attempt) => void; readOnly: boolean
 }) {
   const sorted = [...attempts].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const last = sorted.at(-1)
@@ -129,13 +136,14 @@ function QuestionBlock({ courseId, q, attempts, onAttempt }: {
 
   // Short answers are graded asynchronously: poll until the attempt is final.
   useEffect(() => {
-    if (!last || last.status !== 'pending') return
+    if (readOnly || !last || last.status !== 'pending') return
     const t = setTimeout(async () => onAttempt(await api('get', '/attempts/{attemptId}', undefined, { attemptId: last.id })), POLL_MS)
     return () => clearTimeout(t)
-  }, [last, onAttempt])
+  }, [last, onAttempt, readOnly])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    if (readOnly) return
     const answer = q.type === 'short_answer' ? { text: text.trim() } : { options }
     onAttempt(await api('post', '/courses/{courseId}/attempts', { itemId: q.id, answer }, { courseId }))
   }
@@ -144,6 +152,7 @@ function QuestionBlock({ courseId, q, attempts, onAttempt }: {
   const empty = q.type === 'short_answer' ? !text.trim() : options.length === 0
   return (
     <form className="at-quiz at-inline-quiz" onSubmit={submit} aria-label={'Вопрос: ' + q.prompt}>
+      <fieldset disabled={readOnly} className="at-plain-fieldset">
       <div className="at-quiz-top"><span>{multiple ? 'Выберите все верные ответы' : q.type === 'single_choice' ? 'Выберите один ответ' : 'Ответьте своими словами'}</span></div>
       <p className="at-question">{q.prompt}</p>
       {q.type === 'short_answer' ? (
@@ -171,6 +180,10 @@ function QuestionBlock({ courseId, q, attempts, onAttempt }: {
         {pending ? <span className="at-small at-muted" role="status">Проверяем ответ…</span> : <span />}
         <button className="at-secondary" disabled={pending || empty || last?.status === 'passed'}>Проверить</button>
       </div>
+      </fieldset>
+      {readOnly && attempts.length > 0 && (
+        <p className="at-small at-muted">Попыток: {attempts.length}</p>
+      )}
     </form>
   )
 }

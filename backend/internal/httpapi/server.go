@@ -64,6 +64,7 @@ func New(d Deps) http.Handler {
 	mux.Handle("GET /api/operations/{operationId}", s.learner(s.getOperation))
 	mux.Handle("POST /api/operations/{operationId}/retry", s.learner(s.retryOperation))
 	mux.Handle("GET /api/teacher/learners", s.teacher(s.listLearners))
+	mux.Handle("GET /api/teacher/courses/{courseId}", s.teacher(s.teacherCourse))
 	mux.Handle("GET /api/teacher/attendance", s.teacher(func(w http.ResponseWriter, r *http.Request) {
 		a, err := visits.Count(r.Context(), s.DB, s.Auth.Now())
 		if err != nil {

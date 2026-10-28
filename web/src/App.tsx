@@ -4,6 +4,7 @@ import { api, ApiError, type Account, type Schemas } from './api/client'
 import CoursePage, { mentorNames, statusNames } from './Course'
 import { directionIcons, Logo } from './icons'
 import Login from './Login'
+import { LearnerCourse, Learners } from './Teacher'
 
 export default function App() {
   const [account, setAccount] = useState<Account | null | undefined>(undefined)
@@ -31,6 +32,7 @@ export default function App() {
         </Link>
         {account && (
           <div className="at-header-right">
+            {account.isTeacher && <Link className="at-quiet" to="/teacher">Кабинет преподавателя</Link>}
             <span className="at-quiet at-email">{account.email}</span>
             <button className="at-quiet" onClick={logout}>Выйти</button>
           </div>
@@ -42,6 +44,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Mentors />} />
           <Route path="/courses/:id" element={<CoursePage />} />
+          <Route path="/teacher" element={<Learners />} />
+          <Route path="/teacher/courses/:id" element={<LearnerCourse />} />
         </Routes>
       )}
     </>
