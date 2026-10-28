@@ -123,3 +123,69 @@ svg{display:block}
 .at-generation li.at-done{color:#c6ddcf}
 .at-generation li.at-current{color:#e8ecef}
 @media(max-width:650px){.at-plan{padding:20px}.at-plan-title{font-size:23px}.at-module summary{gap:12px}.at-module-body{padding-left:28px;padding-right:0}.at-actions .at-primary{max-width:100%}}
+
+/* Course page (mockup screen=course, tab=theory). */
+.at-main.at-course{width:min(100% - 64px,1180px)}
+.at-course-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:48px;align-items:start}
+.at-course-content{min-width:0}
+.at-course-top{display:flex;justify-content:space-between;align-items:flex-start;gap:15px}
+.at-course-top h1{font-size:28px;overflow-wrap:anywhere}
+.at-progress{height:3px;background:#363c41;margin:22px 0 9px;border-radius:3px;overflow:hidden}
+.at-progress span{display:block;height:100%;background:#abc4b5}
+.at-tabs{display:flex;gap:25px;border-bottom:1px solid var(--line);margin:28px 0}
+.at-tabs button{color:var(--muted);padding:0 0 11px;font-size:13px;border-bottom:2px solid transparent}
+.at-tabs button[aria-selected=true]{color:var(--text);border-color:#d6dfd9}
+.at-course-toc{margin-bottom:22px;font-size:13px}
+.at-course-toc summary{cursor:pointer;color:var(--muted)}
+.at-course-toc b{display:block;margin-top:14px;font-weight:500}
+.at-course-toc ul{list-style:none;padding:0;margin:6px 0}
+.at-course-toc li button{color:var(--muted);padding:4px 0;text-align:left}
+.at-course-toc li button[aria-current=page]{color:var(--text)}
+.at-page-steps{display:flex;gap:8px;margin:0 0 30px;flex-wrap:wrap}
+.at-page-steps button{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);padding:5px 8px;border-radius:6px}
+.at-page-steps button span{border:1px solid #50585e;border-radius:50%;width:19px;height:19px;display:grid;place-items:center;font-size:10px}
+.at-page-steps button.current{background:#2a322d;color:#d6e3dc}
+.at-page-steps button.current span{border-color:#94af9e;color:#d6e3dc}
+.at-lesson{max-width:680px;min-height:250px;overflow-wrap:anywhere}
+.at-lesson h2{margin-bottom:18px}
+.at-md p,.at-md li{color:#b1b9c0}
+.at-md p{margin:16px 0}
+.at-md pre{background:#141517;border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto;font:13px/1.6 ui-monospace,SFMono-Regular,monospace}
+.at-md code{font-family:ui-monospace,SFMono-Regular,monospace;font-size:.9em}
+.at-quiz{border:1px solid var(--line);border-radius:14px;padding:28px;background:#1d1f21}
+.at-inline-quiz{margin:28px 0;padding:22px;background:#1d2220;border-color:#3c4841}
+.at-quiz-top{font-size:12px;color:var(--muted);margin-bottom:12px}
+.at-question{margin-bottom:10px}
+.at-option{display:flex;align-items:flex-start;gap:12px;border:1px solid #3c4146;border-radius:10px;padding:14px 16px;margin:9px 0;font-size:14px;cursor:pointer}
+.at-option:has(input:checked){border-color:#94af9e}
+.at-option-text{flex:1;white-space:pre-wrap}
+.at-answer{width:100%;border:1px solid var(--line);border-radius:10px;padding:16px;min-height:120px;background:#22262a;color:var(--text);resize:vertical}
+.at-feedback{padding:16px 18px;background:#253129;border:1px solid #435d4d;border-radius:10px;margin-top:22px;font-size:13px}
+.at-feedback.is-wrong{background:#38292b;border-color:#b87575}
+.at-feedback.is-hint{background:#302d24;border-color:#5d5540}
+.at-feedback p{margin-top:8px}
+.at-quiz-actions{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-top:24px}
+.at-page-nav{display:flex;align-items:center;justify-content:space-between;gap:15px;border-top:1px solid var(--line);padding-top:24px;margin-top:32px}
+.at-chat-panel{position:sticky;top:24px;border:1px solid var(--line);border-radius:14px;background:#1d1f21;min-height:490px}
+.at-chat-head{display:flex;align-items:center;justify-content:space-between;padding:19px 20px;border-bottom:1px solid var(--line)}
+.at-chat-head h2{font-size:15px;letter-spacing:0}
+.at-chat-lock{padding:30px 20px;color:var(--muted);font-size:13px}
+.at-chat-launch,.at-chat-close,.at-chat-shade{display:none}
+@media(max-width:960px){
+  .at-main.at-course{width:calc(100% - 40px)}
+  .at-course-layout{grid-template-columns:minmax(0,1fr)}
+  .at-chat-launch,.at-chat-close{display:inline-block;white-space:nowrap}
+  .at-chat-panel{display:none;position:fixed;z-index:22;top:12px;right:12px;bottom:12px;width:min(360px,calc(100vw - 24px));min-height:0;box-shadow:0 10px 70px #0008}
+  .at-chat-open .at-chat-panel{display:block}
+  .at-chat-open .at-chat-shade{display:block;position:fixed;inset:0;background:#0007;z-index:21}
+}
+@media(max-width:650px){
+  .at-course-top{flex-wrap:wrap}
+  .at-course-top h1{font-size:23px}
+  .at-tabs{gap:20px}
+  .at-quiz,.at-inline-quiz{padding:18px}
+  .at-option{padding:12px}
+  .at-page-steps{gap:4px}
+  .at-page-steps button{font-size:10px;padding:4px 5px}
+  .at-page-nav button{padding:10px 13px}
+}

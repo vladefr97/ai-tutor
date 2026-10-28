@@ -27,6 +27,7 @@ import (
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
 	"github.com/vladefr97/tutor-app/backend/internal/generation"
 	"github.com/vladefr97/tutor-app/backend/internal/httpapi"
+	"github.com/vladefr97/tutor-app/backend/internal/learning"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 	"github.com/vladefr97/tutor-app/backend/internal/planning"
 	"github.com/vladefr97/tutor-app/backend/internal/storage"
@@ -77,6 +78,7 @@ type harness struct {
 	deps   httpapi.Deps
 	store  *flakyStore
 	gen    *generation.Service
+	learn  *learning.Service
 }
 
 const (
@@ -123,17 +125,22 @@ func newHarness(t *testing.T) *harness {
 	h.store = &flakyStore{Store: testStore(t)}
 	h.gen = &generation.Service{DB: pool, Agent: h.agent, Config: cfg, Ops: h.ops, Store: h.store, MaxStructureFixes: 2}
 	h.gen.Register()
-	h.deps = httpapi.Deps{DB: pool, Auth: h.auth, Ops: h.ops, Planning: plan, Generation: h.gen}
+	h.learn = &learning.Service{DB: pool, Agent: h.agent, Config: cfg, Versions: h.gen, ReviewTimeout: time.Minute}
+	h.deps = httpapi.Deps{DB: pool, Auth: h.auth, Ops: h.ops, Planning: plan, Generation: h.gen, Learning: h.learn}
 	h.srv = httptest.NewServer(httpapi.New(h.deps))
-	t.Cleanup(func() { h.ops.Wait(); h.srv.Close() })
+	t.Cleanup(func() { h.ops.Wait(); h.learn.Wait(); h.srv.Close() })
 	return h
 }
 
 // restart simulates a new backend process over the same database.
 func (h *harness) restart() {
 	h.ops.Wait()
+	h.learn.Wait()
 	h.srv.Close()
 	if err := h.ops.FailInterrupted(context.Background()); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := h.learn.FailInterrupted(context.Background()); err != nil {
 		h.t.Fatal(err)
 	}
 	h.srv = httptest.NewServer(httpapi.New(h.deps))

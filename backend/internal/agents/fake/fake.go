@@ -48,6 +48,7 @@ func (Agent) Turn(_ context.Context, req agents.TurnRequest) (agents.TurnResult,
 		if isKind(req, agents.KindContentReview) {
 			return result(thread, map[string]any{"kind": "content_review", "approved": true, "issues": []any{}})
 		}
+		return workReview(req, thread)
 	}
 	return agents.TurnResult{}, errors.New("fake agent: role " + string(req.Role) + " is not scripted")
 }
@@ -205,4 +206,17 @@ func directionOf(req agents.TurnRequest) string {
 		return "python"
 	}
 	return "pm"
+}
+
+// workReview passes a short answer that mentions «заранее».
+func workReview(req agents.TurnRequest, thread string) (agents.TurnResult, error) {
+	var in struct{ Answer string }
+	json.Unmarshal([]byte(req.Input), &in)
+	passed := strings.Contains(in.Answer, "заранее")
+	verdict, feedback := "changes_requested", "Не хватает: зачем готовить меры заранее"
+	if passed {
+		verdict, feedback = "passed", "Верно: меры готовят заранее."
+	}
+	return result(thread, map[string]any{"kind": "work_review", "verdict": verdict, "feedback": feedback,
+		"criteria": []any{map[string]any{"criterion": "Меры реагирования готовят заранее", "met": passed, "comment": ""}}})
 }

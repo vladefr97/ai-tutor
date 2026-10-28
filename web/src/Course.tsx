@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { api, ApiError, type Schemas } from './api/client'
 import { directionIcons } from './icons'
+import Learn from './Learn'
 
 type Course = Schemas['Course']
 type Operation = Schemas['Operation']
@@ -103,6 +104,9 @@ export default function CoursePage() {
 
   if (!course) return null
   const mentor = mentorNames[course.direction]
+  if (course.status === 'ready' || course.status === 'completed' || course.status === 'exam_failed') {
+    return <main className="at-main at-course"><Learn course={course} /></main>
+  }
   const chat = (placeholder: string, onSkip?: () => void) => (
     <Chat short={mentor.short} messages={messages} op={op} notice={notice} placeholder={placeholder}
       onSend={send} onRetry={retry} onSkip={onSkip} />
@@ -118,15 +122,19 @@ export default function CoursePage() {
         </div>
       </div>
       {course.status === 'interview' && chat('Расскажите о вашей цели…', skip)}
-      {course.status === 'planning' && <PlanningStages op={op} onRetry={retry} />}
+      {course.status === 'planning' && (
+        <Stages op={op} onRetry={retry} stages={planStages} title="Готовим ваш план"
+          text="Наставник составляет учебный план по вашей цели. Это займёт пару минут." />
+      )}
       {course.status === 'plan_ready' && plan && (
         <>
           <Plan version={plan} busy={active(op)} onConfirm={confirm} />
           {chat('Что изменить в плане? Или задайте вопрос…')}
         </>
       )}
-      {course.status === 'generating' && (
-        <Waiting title="Готовим курс…" text="Собираем материалы по утверждённому плану. Это займёт несколько минут." />
+      {(course.status === 'generating' || course.status === 'generation_failed') && (
+        <Stages op={op} onRetry={retry} stages={courseStages} title="Готовим курс…"
+          text="Собираем материалы по утверждённому плану. Это займёт несколько минут." />
       )}
       {course.status === 'awaiting_github' && (
         <section className="at-generation">
@@ -137,7 +145,7 @@ export default function CoursePage() {
           </p>
         </section>
       )}
-      {!['interview', 'planning', 'plan_ready', 'generating', 'awaiting_github'].includes(course.status) && (
+      {!['interview', 'planning', 'plan_ready', 'generating', 'generation_failed', 'awaiting_github'].includes(course.status) && (
         <Waiting title={statusNames[course.status]} text="" />
       )}
     </main>
@@ -199,19 +207,27 @@ function Chat(props: {
   )
 }
 
-const stages: { id: NonNullable<Operation['stage']>; name: string }[] = [
+type Stage = { id: NonNullable<Operation['stage']>; name: string }
+const planStages: Stage[] = [
   { id: 'drafting_plan', name: 'Составляем план' },
   { id: 'reviewing_plan', name: 'Проверяем план' },
   { id: 'revising_plan', name: 'Вносим исправления' },
 ]
+const courseStages: Stage[] = [
+  { id: 'generating', name: 'Пишем материалы' },
+  { id: 'reviewing_content', name: 'Проверяем задания' },
+  { id: 'uploading', name: 'Сохраняем курс' },
+]
 
-function PlanningStages({ op, onRetry }: { op: Operation | null; onRetry: () => void }) {
+function Stages({ op, onRetry, stages, title, text }: {
+  op: Operation | null; onRetry: () => void; stages: Stage[]; title: string; text: string
+}) {
   const current = Math.max(0, stages.findIndex((s) => s.id === op?.stage))
   return (
     <section className="at-generation">
       {op?.status !== 'failed' && <div className="at-spinner" aria-hidden="true" />}
-      <h1>Готовим ваш план</h1>
-      <p className="at-subtitle">Наставник составляет учебный план по вашей цели. Это займёт пару минут.</p>
+      <h1>{title}</h1>
+      <p className="at-subtitle">{text}</p>
       <ol>
         {stages.map((s, i) => (
           <li key={s.id} className={i < current ? 'at-done' : i === current ? 'at-current' : ''} aria-current={i === current ? 'step' : undefined}>
@@ -222,7 +238,7 @@ function PlanningStages({ op, onRetry }: { op: Operation | null; onRetry: () => 
       </ol>
       {op?.status === 'failed' && (
         <div className="at-op-error" role="alert">
-          <span>{op.error?.message ?? 'Не получилось подготовить план'}</span>
+          <span>{op.error?.message ?? 'Не получилось'}</span>
           <button className="at-secondary" onClick={onRetry}>Повторить</button>
         </div>
       )}

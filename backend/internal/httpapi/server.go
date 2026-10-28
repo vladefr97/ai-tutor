@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
 	"github.com/vladefr97/tutor-app/backend/internal/generation"
+	"github.com/vladefr97/tutor-app/backend/internal/learning"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 	"github.com/vladefr97/tutor-app/backend/internal/planning"
 	"github.com/vladefr97/tutor-app/backend/internal/visits"
@@ -29,6 +30,7 @@ type Deps struct {
 	Ops          *ops.Runner
 	Planning     *planning.Service
 	Generation   *generation.Service
+	Learning     *learning.Service
 	CookieSecure bool
 	WebDir       string // built React app; empty disables static serving
 }
@@ -56,6 +58,9 @@ func New(d Deps) http.Handler {
 	mux.Handle("GET /api/courses/{courseId}/plan", s.learner(s.getPlan))
 	mux.Handle("POST /api/courses/{courseId}/plan/confirm", s.learner(s.confirmPlan))
 	mux.Handle("GET /api/courses/{courseId}/content", s.learner(s.getContent))
+	mux.Handle("POST /api/courses/{courseId}/attempts", s.learner(s.postAttempt))
+	mux.Handle("GET /api/courses/{courseId}/attempts", s.learner(s.listAttempts))
+	mux.Handle("GET /api/attempts/{attemptId}", s.learner(s.getAttempt))
 	mux.Handle("GET /api/operations/{operationId}", s.learner(s.getOperation))
 	mux.Handle("POST /api/operations/{operationId}/retry", s.learner(s.retryOperation))
 	mux.Handle("GET /api/teacher/learners", s.teacher(s.listLearners))

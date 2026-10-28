@@ -15,10 +15,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vladefr97/tutor-app/backend/internal/agents"
+	"github.com/vladefr97/tutor-app/backend/internal/course"
 	"github.com/vladefr97/tutor-app/backend/internal/ops"
 	"github.com/vladefr97/tutor-app/contracts"
 )
@@ -47,6 +49,9 @@ type Service struct {
 	// MaxStructureFixes bounds the turns spent fixing invalid files; content
 	// review cycles are not limited.
 	MaxStructureFixes int
+
+	cacheMu sync.Mutex
+	cache   map[string]*Version
 }
 
 type Input struct {
@@ -327,4 +332,42 @@ func hashDir(dir string) (string, error) {
 // PublicCourse returns the learner-visible course.json of a ready version.
 func (s *Service) PublicCourse(ctx context.Context, courseID, versionID string) ([]byte, error) {
 	return s.Store.Get(ctx, versionPrefix(courseID, versionID)+"/public/course.json")
+}
+
+// Version is a parsed published version, both parts. Versions are immutable,
+// so they are cached in memory.
+type Version struct {
+	Public  course.Public
+	Private course.Private
+}
+
+func (s *Service) Version(ctx context.Context, courseID, versionID string) (*Version, error) {
+	s.cacheMu.Lock()
+	v, ok := s.cache[versionID]
+	s.cacheMu.Unlock()
+	if ok {
+		return v, nil
+	}
+	pub, err := s.PublicCourse(ctx, courseID, versionID)
+	if err != nil {
+		return nil, err
+	}
+	priv, err := s.Store.Get(ctx, versionPrefix(courseID, versionID)+"/private/private.json")
+	if err != nil {
+		return nil, err
+	}
+	v = &Version{}
+	if err := json.Unmarshal(pub, &v.Public); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(priv, &v.Private); err != nil {
+		return nil, err
+	}
+	s.cacheMu.Lock()
+	if s.cache == nil {
+		s.cache = map[string]*Version{}
+	}
+	s.cache[versionID] = v
+	s.cacheMu.Unlock()
+	return v, nil
 }
