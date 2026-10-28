@@ -21,7 +21,7 @@ func TestLiveTurnAndResume(t *testing.T) {
 	dir := t.TempDir()
 	model := os.Getenv("MODEL_PLANNER")
 	if model == "" {
-		model = "gpt-6-astra"
+		model = agents.LiveTestModel()
 	}
 	schema := json.RawMessage(`{"type":"object","additionalProperties":false,"required":["word"],"properties":{"word":{"type":"string"}}}`)
 	first, err := r.Turn(context.Background(), agents.TurnRequest{SessionDir: dir, Model: model,

@@ -25,7 +25,7 @@ func TestLivePlanningAfterSkippedInterview(t *testing.T) {
 	svc := &planning.Service{DB: pool, Ops: runner,
 		Agent: &codex.Runner{Image: "tutor-codex:0.163.0", APIKey: os.Getenv("OPENAI_API_KEY"), TurnTimeout: 5 * time.Minute},
 		Config: agents.Config{InstructionsDir: "../../../agent-config", SessionsDir: t.TempDir(),
-			Models: map[agents.Role]string{agents.Planner: "gpt-6-astra", agents.PlanReviewer: "gpt-6-astra"}}}
+			Models: map[agents.Role]string{agents.Planner: agents.LiveTestModel(), agents.PlanReviewer: agents.LiveTestModel()}}}
 	svc.Register()
 	var learner, course string
 	pool.QueryRow(ctx, `insert into accounts (email) values ('live@example.com') returning id`).Scan(&learner)

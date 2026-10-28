@@ -33,7 +33,7 @@ func TestLiveMentorReadsAnotherPageAndCannotWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := agents.Config{InstructionsDir: "../../../agent-config", SessionsDir: t.TempDir(),
-		Models: map[agents.Role]string{agents.LearningMentor: "gpt-6.1-sol"}}
+		Models: map[agents.Role]string{agents.LearningMentor: agents.LiveTestModel()}}
 	runner := &ops.Runner{DB: pool, Timeout: 10 * time.Minute}
 	gen := &generation.Service{DB: pool, Config: cfg, Ops: runner, Store: store}
 	svc := &mentor.Service{DB: pool, Config: cfg, Ops: runner, Gen: gen,

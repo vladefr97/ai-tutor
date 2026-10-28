@@ -35,7 +35,7 @@ func TestLiveProjectManagementCourse(t *testing.T) {
 		sessions = t.TempDir()
 	}
 	cfg := agents.Config{InstructionsDir: "../../../agent-config", SessionsDir: sessions, Models: map[agents.Role]string{
-		agents.Planner: "gpt-6-astra", agents.PlanReviewer: "gpt-6-astra", agents.Generator: "gpt-6.1-sol", agents.WorkReviewer: "gpt-6-astra"}}
+		agents.Planner: agents.LiveTestModel(), agents.PlanReviewer: agents.LiveTestModel(), agents.Generator: agents.LiveTestModel(), agents.WorkReviewer: agents.LiveTestModel()}}
 	agent := &codex.Runner{Image: "tutor-codex:0.163.0", APIKey: os.Getenv("OPENAI_API_KEY"), TurnTimeout: 30 * time.Minute}
 	runner := &ops.Runner{DB: pool, Timeout: 90 * time.Minute}
 	plan := &planning.Service{DB: pool, Agent: agent, Config: cfg, Ops: runner}

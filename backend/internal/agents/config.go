@@ -36,3 +36,13 @@ func (c Config) Instructions(role Role, direction string) (string, error) {
 func (c Config) SessionDir(courseID string, role Role, n int) string {
 	return filepath.Join(c.SessionsDir, courseID, string(role)+"-"+strconv.Itoa(n))
 }
+
+// LiveTestModel is the model for live tests (make verify-*-live): LIVE_MODEL,
+// by default a cheap one, so checking the chain does not spend the API limits
+// of the production models.
+func LiveTestModel() string {
+	if m := os.Getenv("LIVE_MODEL"); m != "" {
+		return m
+	}
+	return "gpt-6-luna"
+}

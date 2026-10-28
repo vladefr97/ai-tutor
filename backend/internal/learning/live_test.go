@@ -41,7 +41,7 @@ func TestLiveCaseReview(t *testing.T) {
 		}
 	}
 	cfg := agents.Config{InstructionsDir: "../../../agent-config", SessionsDir: t.TempDir(),
-		Models: map[agents.Role]string{agents.WorkReviewer: "gpt-6-astra"}}
+		Models: map[agents.Role]string{agents.WorkReviewer: agents.LiveTestModel()}}
 	agent := &codex.Runner{Image: "tutor-codex:0.163.0", APIKey: os.Getenv("OPENAI_API_KEY"), TurnTimeout: 5 * time.Minute}
 	svc := &learning.Service{DB: pool, Agent: agent, Config: cfg, ReviewTimeout: 5 * time.Minute,
 		Versions: &generation.Service{DB: pool, Store: store}}
