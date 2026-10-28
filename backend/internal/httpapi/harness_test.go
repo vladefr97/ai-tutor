@@ -17,6 +17,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/legacy"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
 	"github.com/vladefr97/tutor-app/backend/internal/httpapi"
 	"github.com/vladefr97/tutor-app/backend/internal/testdb"
@@ -60,6 +61,7 @@ type harness struct {
 	clock  *fakeClock
 	auth   *auth.Service
 	router routers.Router
+	db     *pgxpool.Pool
 }
 
 const (
@@ -90,7 +92,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	pool := testdb.New(t)
 	h := &harness{t: t, mail: &fakeMailer{codes: map[string]string{}},
-		clock: &fakeClock{t: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}, router: router}
+		clock: &fakeClock{t: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}, router: router, db: pool}
 	h.auth = &auth.Service{DB: pool, Mailer: h.mail, Now: h.clock.Now,
 		CodeTTL: codeTTL, SessionTTL: sessionTTL, Pepper: "test-pepper"}
 	if err := h.auth.EnsureTeacher(context.Background(), adminEmail); err != nil {

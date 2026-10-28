@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
+	"github.com/vladefr97/tutor-app/backend/internal/visits"
 )
 
 const sessionCookie = "tutor_session"
@@ -44,6 +45,14 @@ func New(d Deps) http.Handler {
 	mux.Handle("POST /api/courses", s.learner(s.createCourse))
 	mux.Handle("GET /api/courses/{courseId}", s.learner(s.getCourse))
 	mux.Handle("GET /api/teacher/learners", s.teacher(s.listLearners))
+	mux.Handle("GET /api/teacher/attendance", s.teacher(func(w http.ResponseWriter, r *http.Request) {
+		a, err := visits.Count(r.Context(), s.DB, s.Auth.Now())
+		if err != nil {
+			internalError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, a)
+	}))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "Маршрут не найден")
 	})
@@ -69,6 +78,12 @@ func (s *server) learner(next http.HandlerFunc) http.Handler {
 		if err != nil {
 			internalError(w, r, err)
 			return
+		}
+		if !acc.IsTeacher {
+			// A lost visit must not fail the learner's request; it is logged instead.
+			if err := visits.Record(r.Context(), s.DB, acc.ID, s.Auth.Now()); err != nil {
+				slog.ErrorContext(r.Context(), "record visit", "err", err)
+			}
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, acc)))
 	})

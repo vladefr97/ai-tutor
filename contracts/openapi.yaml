@@ -333,6 +333,19 @@ paths:
                 items: { $ref: '#/components/schemas/LearnerSummary' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
+  /teacher/attendance:
+    get:
+      summary: Показатели посещаемости (только преподаватель)
+      description: Окно D-6…D по календарным дням часового пояса timezone; преподаватели не учитываются.
+      responses:
+        default: { $ref: '#/components/responses/Error' }
+        '200':
+          description: Показатели на текущий момент
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attendance' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     session:
@@ -370,6 +383,16 @@ components:
         id: { $ref: '#/components/schemas/Id' }
         email: { type: string, format: email }
         isTeacher: { type: boolean }
+    Attendance:
+      type: object
+      additionalProperties: false
+      required: [totalLearners, regularlyActive, timezone, windowStart, windowEnd]
+      properties:
+        totalLearners: { type: integer, minimum: 0, description: Уникальные ученики за всё время }
+        regularlyActive: { type: integer, minimum: 0, description: Ученики с визитами минимум в два разных дня окна }
+        timezone: { type: string, example: Europe/Moscow }
+        windowStart: { type: string, format: date-time, description: '00:00 дня D-6, включительно' }
+        windowEnd: { type: string, format: date-time, description: '00:00 дня D+1, не включительно' }
     LearnerSummary:
       type: object
       additionalProperties: false

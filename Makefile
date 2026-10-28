@@ -1,4 +1,4 @@
-.PHONY: up down admin test-contracts test-auth test-web e2e db-up
+.PHONY: up down admin test-contracts test-auth test-attendance e2e db-up
 
 TEST_DATABASE_URL ?= postgres://tutor:tutor@localhost:5433/tutor
 export TEST_DATABASE_URL
@@ -27,6 +27,10 @@ test-contracts:
 # Вход по коду, сессии, роли и изоляция учеников (реальный PostgreSQL, ответы сверяются с OpenAPI).
 test-auth: db-up
 	go test ./backend/internal/httpapi/ -run 'Code|Session|Teacher|Learner|Logout'
+
+# Посещения и показатели посещаемости (AC-11): формула на фиксированном времени и HTTP.
+test-attendance: db-up
+	go test ./backend/internal/visits/ ./backend/internal/httpapi/ -run 'Attendance|Visit|Window|Teacher'
 
 # Браузерные сценарии против запущенного make up.
 e2e:
