@@ -2,3 +2,5 @@ __pycache__/
 .superpowers/
 .DS_Store
 .env
+.claude/
+.data/

@@ -12,10 +12,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vladefr97/tutor-app/backend/internal/agents"
+	"github.com/vladefr97/tutor-app/backend/internal/agents/codex"
+	"github.com/vladefr97/tutor-app/backend/internal/agents/fake"
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
 	"github.com/vladefr97/tutor-app/backend/internal/db"
 	"github.com/vladefr97/tutor-app/backend/internal/httpapi"
 	"github.com/vladefr97/tutor-app/backend/internal/mailer"
+	"github.com/vladefr97/tutor-app/backend/internal/ops"
+	"github.com/vladefr97/tutor-app/backend/internal/planning"
 )
 
 func env(key, def string) string {
@@ -78,9 +83,37 @@ func main() {
 		}
 	}
 
+	var agent agents.Agent = &codex.Runner{Image: env("CODEX_IMAGE", "tutor-codex:0.163.0"),
+		APIKey: os.Getenv("OPENAI_API_KEY"), TurnTimeout: duration("AGENT_TURN_TIMEOUT", "180s")}
+	if os.Getenv("AGENT_FAKE") == "1" {
+		slog.Warn("AGENT_FAKE=1: scripted agents, no model calls")
+		agent = fake.Agent{}
+	} else if os.Getenv("OPENAI_API_KEY") == "" {
+		slog.Error("OPENAI_API_KEY is required (or AGENT_FAKE=1 for scripted agents)")
+		os.Exit(2)
+	}
+	agentCfg := agents.Config{
+		InstructionsDir: env("AGENT_CONFIG_DIR", "agent-config"),
+		SessionsDir:     mustEnv("AGENT_SESSIONS_DIR"),
+		Models: map[agents.Role]string{
+			agents.Planner:        env("MODEL_PLANNER", "gpt-6-astra"),
+			agents.PlanReviewer:   env("MODEL_PLAN_REVIEWER", "gpt-6-astra"),
+			agents.Generator:      env("MODEL_GENERATOR", "gpt-6.1-sol"),
+			agents.LearningMentor: env("MODEL_LEARNING_MENTOR", "gpt-6.1-sol"),
+			agents.WorkReviewer:   env("MODEL_WORK_REVIEWER", "gpt-6-astra"),
+		},
+	}
+	runner := &ops.Runner{DB: pool, Timeout: duration("OPERATION_TIMEOUT", "30m")}
+	if err := runner.FailInterrupted(ctx); err != nil {
+		slog.Error("operations", "err", err)
+		os.Exit(1)
+	}
+	planningSvc := &planning.Service{DB: pool, Agent: agent, Config: agentCfg, Ops: runner}
+	planningSvc.Register()
+
 	srv := &http.Server{
 		Addr: env("HTTP_ADDR", ":8080"),
-		Handler: httpapi.New(httpapi.Deps{DB: pool, Auth: authSvc,
+		Handler: httpapi.New(httpapi.Deps{DB: pool, Auth: authSvc, Ops: runner, Planning: planningSvc,
 			CookieSecure: env("COOKIE_SECURE", "false") == "true", WebDir: env("WEB_DIR", "web/dist")}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

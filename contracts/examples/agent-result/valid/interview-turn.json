@@ -1,0 +1,1 @@
+{"kind": "interview_turn", "message": "Расскажите, где вы хотите применять Python: на работе или для себя?", "goal": null, "profile": {"preparation": "Знает переменные и циклы", "context": null, "preferences": "На «ты», коротко"}, "readyForPlan": false}

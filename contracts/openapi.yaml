@@ -175,14 +175,15 @@ paths:
   /courses/{courseId}/interview/skip:
     parameters: [{ $ref: '#/components/parameters/courseId' }]
     post:
-      summary: Пропустить интервью; цель — основы направления
+      summary: Пропустить интервью
+      description: Цель, уже названная учеником, сохраняется; иначе цель — основы направления. Профиль по умолчанию.
       responses:
         default: { $ref: '#/components/responses/Error' }
-        '202':
-          description: План готовится
+        '200':
+          description: Интервью завершено, курс переходит к составлению плана
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Operation' }
+              schema: { $ref: '#/components/schemas/Course' }
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
@@ -305,6 +306,22 @@ paths:
               schema: { $ref: '#/components/schemas/Attempt' }
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /operations/{operationId}/retry:
+    parameters:
+      - { name: operationId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+    post:
+      summary: Повторить завершившуюся ошибкой операцию с теми же входными данными
+      description: Новая операция; автоматических повторов нет. 409, если операция не в статусе failed или у курса есть активная операция.
+      responses:
+        default: { $ref: '#/components/responses/Error' }
+        '202':
+          description: Операция запущена заново
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operation' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /operations/{operationId}:
     parameters:
       - { name: operationId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
@@ -426,6 +443,9 @@ components:
             ready → completed | exam_failed. generation_failed — ошибка с ручным повтором.
           enum: [interview, planning, plan_ready, awaiting_github, generating, generation_failed, ready, completed, exam_failed]
         goal: { type: string, nullable: true }
+        profile:
+          allOf: [{ $ref: '#/components/schemas/Profile' }]
+          nullable: true
         createdAt: { type: string, format: date-time }
         confirmedPlanVersionId:
           allOf: [{ $ref: '#/components/schemas/Id' }]
@@ -439,6 +459,15 @@ components:
           allOf: [{ $ref: '#/components/schemas/Operation' }]
           nullable: true
         practiceAccess: { $ref: '#/components/schemas/PracticeAccess' }
+    Profile:
+      description: Профиль ученика из интервью; не подтверждение знаний
+      type: object
+      additionalProperties: false
+      required: [preparation, context, preferences]
+      properties:
+        preparation: { type: string, nullable: true }
+        context: { type: string, nullable: true }
+        preferences: { type: string, nullable: true }
     PracticeAccess:
       description: Готовность доступа к учебному репозиторию отдельно от готовности содержимого
       type: object

@@ -18,7 +18,7 @@ test('вход по коду из письма, обновление стран�
 
   await expect(page.getByRole('heading', { name: 'Чему хотите научиться?' })).toBeVisible()
   for (const name of ['Python Developer', 'Наставник по Git', 'Project Manager']) {
-    await expect(page.getByRole('heading', { name })).toBeVisible()
+    await expect(page.getByRole('button', { name: new RegExp(name) })).toBeVisible()
   }
   await expect(page.getByText(email)).toBeVisible()
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)

@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -18,8 +21,11 @@ import (
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/legacy"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vladefr97/tutor-app/backend/internal/agents"
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
 	"github.com/vladefr97/tutor-app/backend/internal/httpapi"
+	"github.com/vladefr97/tutor-app/backend/internal/ops"
+	"github.com/vladefr97/tutor-app/backend/internal/planning"
 	"github.com/vladefr97/tutor-app/backend/internal/testdb"
 	"github.com/vladefr97/tutor-app/contracts"
 )
@@ -62,6 +68,9 @@ type harness struct {
 	auth   *auth.Service
 	router routers.Router
 	db     *pgxpool.Pool
+	agent  *scriptedAgent
+	ops    *ops.Runner
+	deps   httpapi.Deps
 }
 
 const (
@@ -98,9 +107,69 @@ func newHarness(t *testing.T) *harness {
 	if err := h.auth.EnsureTeacher(context.Background(), adminEmail); err != nil {
 		t.Fatal(err)
 	}
-	h.srv = httptest.NewServer(httpapi.New(httpapi.Deps{DB: pool, Auth: h.auth}))
-	t.Cleanup(h.srv.Close)
+	h.agent = &scriptedAgent{}
+	h.ops = &ops.Runner{DB: pool, Timeout: time.Minute}
+	cfg := agents.Config{InstructionsDir: instructionsDir(t), SessionsDir: t.TempDir(),
+		Models: map[agents.Role]string{agents.Planner: "planner-model"}}
+	plan := &planning.Service{DB: pool, Agent: h.agent, Config: cfg, Ops: h.ops}
+	plan.Register()
+	h.deps = httpapi.Deps{DB: pool, Auth: h.auth, Ops: h.ops, Planning: plan}
+	h.srv = httptest.NewServer(httpapi.New(h.deps))
+	t.Cleanup(func() { h.ops.Wait(); h.srv.Close() })
 	return h
+}
+
+// restart simulates a new backend process over the same database.
+func (h *harness) restart() {
+	h.ops.Wait()
+	h.srv.Close()
+	if err := h.ops.FailInterrupted(context.Background()); err != nil {
+		h.t.Fatal(err)
+	}
+	h.srv = httptest.NewServer(httpapi.New(h.deps))
+}
+
+func instructionsDir(t *testing.T) string {
+	dir := t.TempDir()
+	for path, text := range map[string]string{
+		"roles/planner.md":          "ПРОМПТ ПЛАНИРОВЩИКА",
+		"directions/pm/base.md":     "ОСНОВА PM",
+		"directions/python/base.md": "ОСНОВА PYTHON",
+	} {
+		os.MkdirAll(filepath.Dir(filepath.Join(dir, path)), 0o755)
+		os.WriteFile(filepath.Join(dir, path), []byte(text), 0o644)
+	}
+	return dir
+}
+
+// scriptedAgent answers turns with a function set by the test and records requests.
+type scriptedAgent struct {
+	mu       sync.Mutex
+	requests []agents.TurnRequest
+	reply    func(req agents.TurnRequest) (agents.TurnResult, error)
+}
+
+func (a *scriptedAgent) Turn(ctx context.Context, req agents.TurnRequest) (agents.TurnResult, error) {
+	a.mu.Lock()
+	a.requests = append(a.requests, req)
+	reply := a.reply
+	a.mu.Unlock()
+	if reply == nil {
+		return agents.TurnResult{}, errors.New("no scripted reply")
+	}
+	return reply(req)
+}
+
+func (a *scriptedAgent) set(reply func(req agents.TurnRequest) (agents.TurnResult, error)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.reply = reply
+}
+
+func (a *scriptedAgent) all() []agents.TurnRequest {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]agents.TurnRequest(nil), a.requests...)
 }
 
 type client struct {

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/vladefr97/tutor-app/backend/internal/ops"
+	"github.com/vladefr97/tutor-app/backend/internal/planning"
 )
 
 type direction struct {
@@ -27,25 +29,27 @@ type practiceAccess struct {
 }
 
 type course struct {
-	ID                     string         `json:"id"`
-	Direction              string         `json:"direction"`
-	Status                 string         `json:"status"`
-	Goal                   *string        `json:"goal"`
-	CreatedAt              time.Time      `json:"createdAt"`
-	ConfirmedPlanVersionID *string        `json:"confirmedPlanVersionId"`
-	ContentVersionID       *string        `json:"contentVersionId"`
-	PracticeAccess         practiceAccess `json:"practiceAccess"`
+	ID                     string            `json:"id"`
+	Direction              string            `json:"direction"`
+	Status                 string            `json:"status"`
+	Goal                   *string           `json:"goal"`
+	Profile                *planning.Profile `json:"profile"`
+	CreatedAt              time.Time         `json:"createdAt"`
+	ConfirmedPlanVersionID *string           `json:"confirmedPlanVersionId"`
+	ContentVersionID       *string           `json:"contentVersionId"`
+	PracticeAccess         practiceAccess    `json:"practiceAccess"`
+	Operation              *ops.Op           `json:"operation"`
 }
 
 func (s *server) directions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, directions)
 }
 
-const courseColumns = `id, direction, status, goal, created_at`
+const courseColumns = `id, direction, status, goal, profile, created_at`
 
 func scanCourse(row pgx.Row) (course, error) {
 	var c course
-	err := row.Scan(&c.ID, &c.Direction, &c.Status, &c.Goal, &c.CreatedAt)
+	err := row.Scan(&c.ID, &c.Direction, &c.Status, &c.Goal, &c.Profile, &c.CreatedAt)
 	c.PracticeAccess.State = "github_not_connected"
 	if c.Direction == "pm" {
 		c.PracticeAccess.State = "not_required"
@@ -68,6 +72,12 @@ func (s *server) createCourse(w http.ResponseWriter, r *http.Request) {
 		internalError(w, r, err)
 		return
 	}
+	op, err := s.Planning.StartInterview(r.Context(), c.ID)
+	if err != nil {
+		internalError(w, r, err)
+		return
+	}
+	c.Operation = &op
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -86,6 +96,10 @@ func (s *server) listCourses(w http.ResponseWriter, r *http.Request) {
 			internalError(w, r, err)
 			return
 		}
+		if c.Operation, err = s.Ops.Current(r.Context(), c.ID); err != nil {
+			internalError(w, r, err)
+			return
+		}
 		list = append(list, c)
 	}
 	writeJSON(w, http.StatusOK, list)
@@ -98,6 +112,9 @@ func (s *server) ownCourse(w http.ResponseWriter, r *http.Request) (course, bool
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Курс не найден")
 		return c, false
+	}
+	if err == nil {
+		c.Operation, err = s.Ops.Current(r.Context(), c.ID)
 	}
 	if err != nil {
 		internalError(w, r, err)

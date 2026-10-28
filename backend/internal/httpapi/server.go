@@ -15,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vladefr97/tutor-app/backend/internal/auth"
+	"github.com/vladefr97/tutor-app/backend/internal/ops"
+	"github.com/vladefr97/tutor-app/backend/internal/planning"
 	"github.com/vladefr97/tutor-app/backend/internal/visits"
 )
 
@@ -23,6 +25,8 @@ const sessionCookie = "tutor_session"
 type Deps struct {
 	DB           *pgxpool.Pool
 	Auth         *auth.Service
+	Ops          *ops.Runner
+	Planning     *planning.Service
 	CookieSecure bool
 	WebDir       string // built React app; empty disables static serving
 }
@@ -44,6 +48,11 @@ func New(d Deps) http.Handler {
 	mux.Handle("GET /api/courses", s.learner(s.listCourses))
 	mux.Handle("POST /api/courses", s.learner(s.createCourse))
 	mux.Handle("GET /api/courses/{courseId}", s.learner(s.getCourse))
+	mux.Handle("GET /api/courses/{courseId}/messages", s.learner(s.listMessages))
+	mux.Handle("POST /api/courses/{courseId}/messages", s.learner(s.postMessage))
+	mux.Handle("POST /api/courses/{courseId}/interview/skip", s.learner(s.skipInterview))
+	mux.Handle("GET /api/operations/{operationId}", s.learner(s.getOperation))
+	mux.Handle("POST /api/operations/{operationId}/retry", s.learner(s.retryOperation))
 	mux.Handle("GET /api/teacher/learners", s.teacher(s.listLearners))
 	mux.Handle("GET /api/teacher/attendance", s.teacher(func(w http.ResponseWriter, r *http.Request) {
 		a, err := visits.Count(r.Context(), s.DB, s.Auth.Now())

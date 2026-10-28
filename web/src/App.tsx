@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, Route, Routes, useNavigate, useSearchParams } from 'react-router'
+import { Link, Route, Routes, useNavigate } from 'react-router'
 import { api, ApiError, type Account, type Schemas } from './api/client'
+import CoursePage, { mentorNames, statusNames } from './Course'
 import { directionIcons, Logo } from './icons'
 import Login from './Login'
 
@@ -40,7 +41,7 @@ export default function App() {
       ) : (
         <Routes>
           <Route path="/" element={<Mentors />} />
-          <Route path="/courses/new" element={<NewCourse />} />
+          <Route path="/courses/:id" element={<CoursePage />} />
         </Routes>
       )}
     </>
@@ -54,6 +55,21 @@ const mentors: { id: Schemas['DirectionId']; name: string; desc: string }[] = [
 ]
 
 function Mentors() {
+  const navigate = useNavigate()
+  const [courses, setCourses] = useState<Schemas['Course'][]>([])
+  const [starting, setStarting] = useState(false)
+  useEffect(() => { api('get', '/courses').then(setCourses) }, [])
+
+  async function start(direction: Schemas['DirectionId']) {
+    setStarting(true)
+    try {
+      const c = await api('post', '/courses', { direction })
+      navigate(`/courses/${c.id}`)
+    } finally {
+      setStarting(false)
+    }
+  }
+
   return (
     <main className="at-main at-home">
       <div className="at-eyebrow">Ваша цель. Ваш темп.</div>
@@ -61,30 +77,31 @@ function Mentors() {
       <p className="at-subtitle">Выберите наставника. Вместе вы составите план и перейдёте к практике.</p>
       <div className="at-mentors">
         {mentors.map((m) => (
-          <Link key={m.id} className="at-mentor" to={`/courses/new?direction=${m.id}`}>
+          <button key={m.id} className="at-mentor" onClick={() => start(m.id)} disabled={starting}>
             <span className="at-icon">{directionIcons[m.id]}</span>
             <h2>{m.name}</h2>
             <p>{m.desc}</p>
             <span className="at-mentor-foot">
               Начать разговор <span aria-hidden="true">↗</span>
             </span>
-          </Link>
+          </button>
         ))}
       </div>
       <p className="at-footnote">Начнём с того, что нужно именно вам.</p>
-    </main>
-  )
-}
-
-// ponytail: placeholder until #12 wires the interview chat.
-function NewCourse() {
-  const direction = useSearchParams()[0].get('direction')
-  const mentor = mentors.find((m) => m.id === direction)
-  return (
-    <main className="at-main">
-      <Link className="at-back" to="/">← Все наставники</Link>
-      <h1>{mentor?.name ?? 'Наставник'}</h1>
-      <p className="at-subtitle">Скоро здесь начнётся разговор с наставником.</p>
+      {courses.length > 0 && (
+        <section className="at-courses">
+          <h2>Мои курсы</h2>
+          {courses.map((c) => (
+            <Link key={c.id} className="at-student" to={`/courses/${c.id}`}>
+              <span>
+                {mentorNames[c.direction].name}
+                <small>{c.goal ?? 'Интервью'}</small>
+              </span>
+              <small>{statusNames[c.status]}</small>
+            </Link>
+          ))}
+        </section>
+      )}
     </main>
   )
 }

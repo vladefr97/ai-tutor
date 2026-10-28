@@ -14,7 +14,11 @@ COPY contracts/ contracts/
 COPY backend/ backend/
 RUN CGO_ENABLED=0 go build -o /server ./backend/cmd/server
 
+FROM docker:27-cli AS dockercli
+
+# Root: the backend starts agent containers through the host Docker socket.
 FROM gcr.io/distroless/static-debian12
+COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=server /server /server
 COPY --from=web /src/web/dist /web
 ENV WEB_DIR=/web HTTP_ADDR=:8080

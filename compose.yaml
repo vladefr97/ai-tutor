@@ -43,6 +43,15 @@ services:
       AUTH_PEPPER: ${AUTH_PEPPER:-local-dev-pepper}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-teacher@example.com}
       S3_ENDPOINT: http://s3:7070
+      AGENT_FAKE: ${AGENT_FAKE:-0}
+      AGENT_CONFIG_DIR: /agent-config
+      # Agent containers are started on the host Docker; session dirs must have
+      # the same absolute path for the backend and for the host (see Makefile).
+      AGENT_SESSIONS_DIR: ${AGENT_DATA_DIR:-${PWD}/.data/agents}
+    volumes:
+      - ./agent-config:/agent-config:ro
+      - ${AGENT_DATA_DIR:-${PWD}/.data/agents}:${AGENT_DATA_DIR:-${PWD}/.data/agents}
+      - /var/run/docker.sock:/var/run/docker.sock
     ports: ["127.0.0.1:8080:8080"]
 
 volumes:

@@ -406,7 +406,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Пропустить интервью; цель — основы направления */
+        /**
+         * Пропустить интервью
+         * @description Цель, уже названная учеником, сохраняется; иначе цель — основы направления. Профиль по умолчанию.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -418,13 +421,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description План готовится */
-                202: {
+                /** @description Интервью завершено, курс переходит к составлению плана */
+                200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Operation"];
+                        "application/json": components["schemas"]["Course"];
                     };
                 };
                 401: components["responses"]["Error"];
@@ -746,6 +749,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/operations/{operationId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operationId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Повторить завершившуюся ошибкой операцию с теми же входными данными
+         * @description Новая операция; автоматических повторов нет. 409, если операция не в статусе failed или у курса есть активная операция.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    operationId: components["schemas"]["Id"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Операция запущена заново */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Operation"];
+                    };
+                };
+                401: components["responses"]["Error"];
+                404: components["responses"]["Error"];
+                409: components["responses"]["Error"];
+                default: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/operations/{operationId}": {
         parameters: {
             query?: never;
@@ -930,6 +980,7 @@ export interface components {
              */
             status: "interview" | "planning" | "plan_ready" | "awaiting_github" | "generating" | "generation_failed" | "ready" | "completed" | "exam_failed";
             goal?: string | null;
+            profile?: components["schemas"]["Profile"] | null;
             /** Format: date-time */
             createdAt: string;
             confirmedPlanVersionId?: components["schemas"]["Id"] | null;
@@ -938,6 +989,12 @@ export interface components {
             /** @description Текущая фоновая операция курса, если есть */
             operation?: components["schemas"]["Operation"] | null;
             practiceAccess: components["schemas"]["PracticeAccess"];
+        };
+        /** @description Профиль ученика из интервью; не подтверждение знаний */
+        Profile: {
+            preparation: string | null;
+            context: string | null;
+            preferences: string | null;
         };
         /** @description Готовность доступа к учебному репозиторию отдельно от готовности содержимого */
         PracticeAccess: {
