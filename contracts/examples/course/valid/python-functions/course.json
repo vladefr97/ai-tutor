@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "direction": "python",
+  "title": "Функции в Python",
+  "goal": "Писать небольшие функции с параметрами и возвращаемым значением и проверять их тестами",
+  "modules": [
+    {
+      "id": "m-functions",
+      "title": "Функции",
+      "pages": [
+        {
+          "id": "p-return",
+          "title": "Зачем нужен return",
+          "blocks": [
+            { "id": "b-return-intro", "type": "markdown", "markdown": "`return` завершает функцию и передаёт значение туда, откуда её вызвали." },
+            { "id": "b-return-example", "type": "markdown", "markdown": "```python\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))  # 5\n```" },
+            {
+              "id": "q-return-single",
+              "type": "single_choice",
+              "prompt": "Что вернёт функция без `return`?",
+              "options": [
+                { "id": "a", "text": "0" },
+                { "id": "b", "text": "None" },
+                { "id": "c", "text": "Пустую строку" }
+              ]
+            },
+            { "id": "b-return-more", "type": "markdown", "markdown": "Значение, которое вернула функция, можно сохранить в переменную или передать в другую функцию." }
+          ]
+        }
+      ]
+    }
+  ],
+  "practice": [
+    {
+      "id": "t-sum-list",
+      "title": "Сумма чётных",
+      "kind": "code",
+      "statement": "Напишите функцию `sum_even(numbers)`, которая возвращает сумму чётных чисел списка.",
+      "relatedPages": ["p-return"],
+      "repoPath": "tasks/sum_even"
+    }
+  ],
+  "exam": {
+    "variants": [
+      { "id": "exam-a", "title": "Вариант 1", "parts": [ { "id": "exam-a-max", "title": "Максимум", "kind": "code", "statement": "Напишите `max_of(numbers)` без встроенной функции max.", "repoPath": "exam/a/max_of" } ] },
+      { "id": "exam-b", "title": "Вариант 2", "parts": [ { "id": "exam-b-count", "title": "Подсчёт", "kind": "code", "statement": "Напишите `count_words(text)`, возвращающую число слов.", "repoPath": "exam/b/count_words" } ] }
+    ]
+  }
+}

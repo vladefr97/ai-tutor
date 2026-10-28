@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tutor-app.local/contracts/course.schema.json",
+  "title": "Публичная часть версии курса",
+  "description": "То, что видит ученик и Учебный наставник. Правильных ответов, подсказок, разборов, критериев и официальных проверок здесь нет: они в course-private.schema.json. Перекрёстные правила (уникальность ID, ссылки, наличие ключей) проверяет бэкенд, см. internal/course.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "direction", "title", "goal", "modules", "practice", "exam"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "direction": { "$ref": "#/$defs/direction" },
+    "title": { "$ref": "#/$defs/text" },
+    "goal": { "$ref": "#/$defs/text" },
+    "modules": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/module" } },
+    "practice": { "type": "array", "items": { "$ref": "#/$defs/task" } },
+    "exam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variants"],
+      "properties": {
+        "variants": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/examVariant" } }
+      }
+    }
+  },
+  "$defs": {
+    "direction": { "enum": ["python", "git", "pm"] },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+    "text": { "type": "string", "minLength": 1 },
+    "repoPath": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_./-]*$", "not": { "pattern": "\\.\\." } },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "pages"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "$ref": "#/$defs/text" },
+        "pages": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/page" } }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "blocks"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "$ref": "#/$defs/text" },
+        "blocks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/block" } }
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": ["type"],
+      "properties": { "type": { "enum": ["markdown", "single_choice", "multiple_choice", "short_answer"] } },
+      "if": { "properties": { "type": { "const": "markdown" } } },
+      "then": { "$ref": "#/$defs/markdownBlock" },
+      "else": { "$ref": "#/$defs/question" }
+    },
+    "markdownBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "markdown"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "const": "markdown" },
+        "markdown": { "$ref": "#/$defs/text" }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "prompt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["single_choice", "multiple_choice", "short_answer"] },
+        "prompt": { "$ref": "#/$defs/text" },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "text"],
+            "properties": { "id": { "$ref": "#/$defs/id" }, "text": { "$ref": "#/$defs/text" } }
+          }
+        }
+      },
+      "if": { "properties": { "type": { "const": "short_answer" } } },
+      "then": { "not": { "required": ["options"] } },
+      "else": { "required": ["options"] }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "kind", "statement", "relatedPages"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "$ref": "#/$defs/text" },
+        "kind": { "enum": ["code", "case"] },
+        "statement": { "$ref": "#/$defs/text" },
+        "relatedPages": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "repoPath": { "$ref": "#/$defs/repoPath" }
+      },
+      "if": { "properties": { "kind": { "const": "code" } } },
+      "then": { "required": ["repoPath"] },
+      "else": { "not": { "required": ["repoPath"] } }
+    },
+    "examVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "parts"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "$ref": "#/$defs/text" },
+        "parts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/examPart" } }
+      }
+    },
+    "examPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "$ref": "#/$defs/text" },
+        "kind": { "enum": ["quiz", "case", "code"] },
+        "statement": { "$ref": "#/$defs/text" },
+        "questions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/question" } },
+        "repoPath": { "$ref": "#/$defs/repoPath" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "quiz" } } },
+          "then": { "required": ["questions"], "not": { "anyOf": [{ "required": ["statement"] }, { "required": ["repoPath"] }] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "case" } } },
+          "then": { "required": ["statement"], "not": { "anyOf": [{ "required": ["questions"] }, { "required": ["repoPath"] }] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "code" } } },
+          "then": { "required": ["statement", "repoPath"], "not": { "required": ["questions"] } }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "questions": {
+    "q-return-single": {
+      "correct": ["b"],
+      "hint": "В Python у «ничего» есть отдельное значение.",
+      "explanation": "Функция без return возвращает None — специальное значение «ничего»."
+    }
+  },
+  "tasks": {
+    "t-sum-list": { "criteria": ["Функция возвращает сумму только чётных чисел", "Пустой список даёт 0"], "officialChecks": "checks/t-sum-list" },
+    "exam-a-max": { "criteria": ["Возвращает наибольший элемент без max()"], "officialChecks": "checks/exam-a-max" },
+    "exam-b-count": { "criteria": ["Считает слова, разделённые пробельными символами"], "officialChecks": "checks/exam-b-count" }
+  }
+}

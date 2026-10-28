@@ -1,0 +1,493 @@
+openapi: 3.0.3
+info:
+  title: ai-tutor API
+  version: 0.1.0
+  description: |
+    Контракт между Go-бэкендом и React-клиентом. Ученика сервер определяет по
+    cookie сессии; ID ученика в теле или пути запроса не принимается.
+    Фоновые операции возвращают Operation: `failed` — это ошибка, не готовность.
+    Версия плана, версия курса и коммит решения — разные идентификаторы.
+servers:
+  - url: /api
+security:
+  - session: []
+paths:
+  /auth/code:
+    post:
+      summary: Отправить одноразовый код на почту
+      description: Создаёт аккаунт при первом входе. Ответ одинаков для любых адресов.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        '204': { description: Код отправлен }
+        '400': { $ref: '#/components/responses/Error' }
+  /auth/verify:
+    post:
+      summary: Обменять код на сессию
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, code]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Сессия создана, cookie установлена
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      summary: Завершить текущую сессию
+      responses:
+        '204': { description: Сессия завершена }
+        '401': { $ref: '#/components/responses/Error' }
+  /me:
+    get:
+      summary: Текущий аккаунт
+      responses:
+        '200':
+          description: Аккаунт
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '401': { $ref: '#/components/responses/Error' }
+  /directions:
+    get:
+      summary: Направления и их наставники
+      responses:
+        '200':
+          description: Список направлений
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Direction' }
+        '401': { $ref: '#/components/responses/Error' }
+  /courses:
+    get:
+      summary: Курсы текущего ученика
+      responses:
+        '200':
+          description: Курсы
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Course' }
+        '401': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Начать курс с выбранным наставником
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [direction]
+              properties:
+                direction: { $ref: '#/components/schemas/DirectionId' }
+      responses:
+        '201':
+          description: Курс создан, интервью начато
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Course' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+  /courses/{courseId}:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    get:
+      summary: Состояние курса
+      responses:
+        '200':
+          description: Курс
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Course' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /courses/{courseId}/messages:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    get:
+      summary: Диалог интервью и обсуждения плана
+      responses:
+        '200':
+          description: Сообщения по порядку
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Message' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Сообщение Наставнику-планировщику
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [text]
+              properties:
+                text: { type: string, minLength: 1, maxLength: 8000 }
+      responses:
+        '202':
+          description: Ответ готовится
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operation' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /courses/{courseId}/interview/skip:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    post:
+      summary: Пропустить интервью; цель — основы направления
+      responses:
+        '202':
+          description: План готовится
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operation' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /courses/{courseId}/plan:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    get:
+      summary: Последняя одобренная Ревьюером плана версия
+      description: Неодобренные версии и замечания ревьюера ученику не показываются.
+      responses:
+        '200':
+          description: Версия плана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanVersion' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /courses/{courseId}/plan/confirm:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    post:
+      summary: Подтвердить конкретную версию плана
+      description: 409, если версия не последняя одобренная.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [planVersionId]
+              properties:
+                planVersionId: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Подтверждено
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Course' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /courses/{courseId}/generation/retry:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    post:
+      summary: Повторить генерацию по сохранённому подтверждённому плану
+      responses:
+        '202':
+          description: Генерация запущена
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operation' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /courses/{courseId}/content:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    get:
+      summary: Публичная часть текущей версии курса
+      responses:
+        '200':
+          description: Версия курса
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CourseContent' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /courses/{courseId}/attempts:
+    parameters: [{ $ref: '#/components/parameters/courseId' }]
+    get:
+      summary: Все попытки ученика в курсе
+      responses:
+        '200':
+          description: Попытки, новые последними
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Attempt' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Отправить ответ на встроенный вопрос или кейс
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [itemId, answer]
+              properties:
+                itemId: { type: string, description: ID вопроса или задания в версии курса }
+                answer: { $ref: '#/components/schemas/Answer' }
+      responses:
+        '201':
+          description: Попытка сохранена; status=pending, если оценивает Ревьюер работ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attempt' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /attempts/{attemptId}:
+    parameters:
+      - { name: attemptId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+    get:
+      summary: Попытка и её результат
+      responses:
+        '200':
+          description: Попытка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attempt' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /operations/{operationId}:
+    parameters:
+      - { name: operationId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+    get:
+      summary: Статус фоновой операции
+      responses:
+        '200':
+          description: Операция
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operation' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: tutor_session
+  parameters:
+    courseId:
+      name: courseId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+  responses:
+    Error:
+      description: Ошибка
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Id:
+      type: string
+      format: uuid
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code: { type: string, example: invalid_code }
+        message: { type: string }
+    Account:
+      type: object
+      additionalProperties: false
+      required: [id, email, isTeacher]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        email: { type: string, format: email }
+        isTeacher: { type: boolean }
+    DirectionId:
+      type: string
+      enum: [python, git, pm]
+    Direction:
+      type: object
+      additionalProperties: false
+      required: [id, title, description]
+      properties:
+        id: { $ref: '#/components/schemas/DirectionId' }
+        title: { type: string, example: Python Developer }
+        description: { type: string }
+    Course:
+      type: object
+      additionalProperties: false
+      required: [id, direction, status, createdAt, practiceAccess]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        direction: { $ref: '#/components/schemas/DirectionId' }
+        status:
+          type: string
+          description: |
+            interview → planning → plan_ready → (awaiting_github) → generating →
+            ready → completed | exam_failed. generation_failed — ошибка с ручным повтором.
+          enum: [interview, planning, plan_ready, awaiting_github, generating, generation_failed, ready, completed, exam_failed]
+        goal: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        confirmedPlanVersionId:
+          allOf: [{ $ref: '#/components/schemas/Id' }]
+          nullable: true
+        contentVersionId:
+          description: Опубликованная версия курса; null, пока версия не загружена и не одобрена
+          allOf: [{ $ref: '#/components/schemas/Id' }]
+          nullable: true
+        operation:
+          description: Текущая фоновая операция курса, если есть
+          allOf: [{ $ref: '#/components/schemas/Operation' }]
+          nullable: true
+        practiceAccess: { $ref: '#/components/schemas/PracticeAccess' }
+    PracticeAccess:
+      description: Готовность доступа к учебному репозиторию отдельно от готовности содержимого
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [not_required, github_not_connected, preparing, failed, invited, ready]
+        repoUrl: { type: string, nullable: true }
+        invitationUrl: { type: string, nullable: true }
+    Message:
+      type: object
+      additionalProperties: false
+      required: [id, author, text, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        author: { type: string, enum: [learner, mentor] }
+        text: { type: string }
+        createdAt: { type: string, format: date-time }
+    Plan:
+      description: Содержание версии плана; совпадает с $defs/plan в agent-result.schema.json
+      type: object
+      additionalProperties: false
+      required: [title, goal, hasPractice, modules, exam]
+      properties:
+        title: { type: string }
+        goal: { type: string }
+        hasPractice: { type: boolean }
+        modules:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [title, topics, practice, outcome]
+            properties:
+              title: { type: string }
+              topics: { type: array, items: { type: string } }
+              practice: { type: array, items: { type: string } }
+              outcome: { type: string }
+        exam: { type: string }
+    PlanVersion:
+      type: object
+      additionalProperties: false
+      required: [id, number, plan, confirmed, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        number: { type: integer, minimum: 1 }
+        plan: { $ref: '#/components/schemas/Plan' }
+        explanation: { type: string }
+        confirmed: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    Operation:
+      type: object
+      additionalProperties: false
+      required: [id, kind, status]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        kind: { type: string, enum: [mentor_reply, planning, generation, review] }
+        status:
+          type: string
+          description: failed — ошибка; готовность определяется только succeeded
+          enum: [queued, running, succeeded, failed]
+        stage:
+          type: string
+          nullable: true
+          description: Этап для экрана подготовки
+          enum: [drafting_plan, reviewing_plan, revising_plan, generating, reviewing_content, uploading, null]
+        error:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/Error' }]
+    CourseContent:
+      type: object
+      required: [versionId, course]
+      additionalProperties: false
+      properties:
+        versionId: { $ref: '#/components/schemas/Id' }
+        course:
+          description: Объект по contracts/course.schema.json (публичная часть, без ответов и подсказок)
+          type: object
+          additionalProperties: true
+    Answer:
+      type: object
+      additionalProperties: false
+      properties:
+        options:
+          description: Выбранные варианты для вопросов с выбором
+          type: array
+          items: { type: string }
+        text:
+          description: Короткий ответ или решение кейса
+          type: string
+          maxLength: 20000
+    Attempt:
+      type: object
+      additionalProperties: false
+      required: [id, itemId, contentVersionId, answer, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        itemId: { type: string }
+        contentVersionId: { $ref: '#/components/schemas/Id' }
+        answer: { $ref: '#/components/schemas/Answer' }
+        status:
+          type: string
+          description: pending — оценка идёт; error — сбой оценивания, не зачёт
+          enum: [pending, passed, failed, error]
+        feedback: { type: string, nullable: true }
+        hint:
+          description: Только после первой ошибочной учебной попытки встроенного вопроса
+          type: string
+          nullable: true
+        explanation:
+          description: Разбор с правильным ответом — после второй ошибки
+          type: string
+          nullable: true
+        createdAt: { type: string, format: date-time }

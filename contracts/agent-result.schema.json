@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tutor-app.local/contracts/agent-result.schema.json",
+  "title": "Структурированный результат агента",
+  "description": "Последнее сообщение хода агента, которое бэкенд разбирает. Ответ, не прошедший схему, — ошибка операции, не одобрение и не зачёт.",
+  "type": "object",
+  "required": ["kind"],
+  "properties": { "kind": { "enum": ["plan_proposal", "plan_review", "content_review", "work_review"] } },
+  "allOf": [
+    { "if": { "properties": { "kind": { "const": "plan_proposal" } } }, "then": { "$ref": "#/$defs/planProposal" } },
+    { "if": { "properties": { "kind": { "const": "plan_review" } } }, "then": { "$ref": "#/$defs/planReview" } },
+    { "if": { "properties": { "kind": { "const": "content_review" } } }, "then": { "$ref": "#/$defs/contentReview" } },
+    { "if": { "properties": { "kind": { "const": "work_review" } } }, "then": { "$ref": "#/$defs/workReview" } }
+  ],
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "issues": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "plan": {
+      "description": "Содержание версии плана. Совпадает со схемой Plan в openapi.yaml.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "goal", "hasPractice", "modules", "exam"],
+      "properties": {
+        "title": { "$ref": "#/$defs/text" },
+        "goal": { "$ref": "#/$defs/text" },
+        "hasPractice": { "type": "boolean" },
+        "modules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "topics", "practice", "outcome"],
+            "properties": {
+              "title": { "$ref": "#/$defs/text" },
+              "topics": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/text" } },
+              "practice": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+              "outcome": { "$ref": "#/$defs/text" }
+            }
+          }
+        },
+        "exam": { "$ref": "#/$defs/text" }
+      }
+    },
+    "planProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "plan", "explanation"],
+      "properties": {
+        "kind": { "const": "plan_proposal" },
+        "plan": { "$ref": "#/$defs/plan" },
+        "explanation": { "$ref": "#/$defs/text" }
+      }
+    },
+    "planReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "approved", "goal", "plan"],
+      "properties": {
+        "kind": { "const": "plan_review" },
+        "approved": { "type": "boolean" },
+        "goal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ok", "outOfScope", "issues"],
+          "properties": {
+            "ok": { "type": "boolean" },
+            "outOfScope": { "type": "boolean" },
+            "issues": { "$ref": "#/$defs/issues" }
+          }
+        },
+        "plan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ok", "issues"],
+          "properties": { "ok": { "type": "boolean" }, "issues": { "$ref": "#/$defs/issues" } }
+        }
+      },
+      "if": { "properties": { "approved": { "const": true } } },
+      "then": { "properties": { "goal": { "properties": { "ok": { "const": true }, "outOfScope": { "const": false } } }, "plan": { "properties": { "ok": { "const": true } } } } }
+    },
+    "contentReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "approved", "issues"],
+      "properties": {
+        "kind": { "const": "content_review" },
+        "approved": { "type": "boolean" },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["itemId", "comment"],
+            "properties": { "itemId": { "$ref": "#/$defs/text" }, "comment": { "$ref": "#/$defs/text" } }
+          }
+        }
+      },
+      "if": { "properties": { "approved": { "const": false } } },
+      "then": { "properties": { "issues": { "minItems": 1 } } }
+    },
+    "workReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "verdict", "criteria", "feedback"],
+      "properties": {
+        "kind": { "const": "work_review" },
+        "verdict": { "enum": ["passed", "changes_requested"] },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["criterion", "met", "comment"],
+            "properties": {
+              "criterion": { "$ref": "#/$defs/text" },
+              "met": { "type": "boolean" },
+              "comment": { "type": "string" }
+            }
+          }
+        },
+        "feedback": { "$ref": "#/$defs/text" }
+      },
+      "if": { "properties": { "verdict": { "const": "passed" } } },
+      "then": { "properties": { "criteria": { "items": { "properties": { "met": { "const": true } } } } } }
+    }
+  }
+}
