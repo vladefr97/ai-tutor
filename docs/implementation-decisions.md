@@ -14,9 +14,11 @@
 | Браузерные сценарии | Playwright (`@playwright/test`) | lock-файл |
 | S3 | Versity Gateway, бэкенд `posix` | `versity/versitygw:v1.10.0` |
 | Почта | Mailpit | `axllent/mailpit:v1.32.0` |
-| Трейсы, логи, Grafana | `grafana/otel-lgtm` (OTel Collector + Tempo + Loki + Grafana в одном контейнере) | `grafana/otel-lgtm:0.38.1` |
-| Метрики | Prometheus, scrape `/metrics` приложения (`prometheus/client_golang`) | `prom/prometheus:v3.15.1` |
-| OTel SDK | `go.opentelemetry.io/otel`, экспорт OTLP в otel-lgtm; логи `log/slog` с `trace_id`/`span_id` | v1.47.0 |
+| Трейсы | Tempo, OTLP HTTP напрямую из приложения | `grafana/tempo:2.8.2` |
+| Логи | Loki, OTLP HTTP (`/otlp`) напрямую из приложения | `grafana/loki:3.7.8` |
+| Grafana | провижинг из `infra/observability/grafana/` | `grafana/grafana:12.1.1` |
+| Метрики | Prometheus, scrape `backend:9090/metrics` (`prometheus/client_golang` v1.25.0) | `prom/prometheus:v3.13.2` |
+| OTel SDK | `go.opentelemetry.io/otel`, OTLP HTTP; логи `log/slog` + мост `otelslog` v0.21.0 | v1.47.0 |
 | Агентный движок | Codex app-server в Docker | `@openai/codex@0.163.0` |
 | GitHub | GitHub App в организации платформы + OAuth user-to-server | REST API `2022-11-28` |
 | Вебхуки локально | smee.io + `smee-client` | lock-файл |
@@ -36,10 +38,14 @@
 
 ## Наблюдаемость
 
-- **Минимум контейнеров:** `grafana/otel-lgtm:0.38.1` ([репозиторий](https://github.com/grafana/docker-otel-lgtm)) принимает OTLP (4317/4318), хранит трейсы в Tempo и логи в Loki, показывает Grafana (3000). Prometheus отдельным контейнером `prom/prometheus:v3.15.1`, чтобы сбор метрик был именно scrape-моделью из AC-12. Datasource Prometheus и панели провиженятся в Grafana из `infra/observability/`.
-- **Логи:** `slog` JSON в stdout и OTLP-экспорт через мост `otelslog`; каждая запись в контексте запроса несёт `trace_id`. В Grafana настраивается переход Tempo → Loki по `trace_id`.
-- **Метрики:** HTTP-метки только `method`, `route` (шаблон `r.Pattern`), `code`. ID учеников и курсов в labels не попадают. Внешние вызовы: `external_calls_total{service,operation,outcome}` и гистограмма длительности; `outcome` из `ok|error|timeout`.
-- **Секреты:** коды, токены сессий, ключи API и тела писем не логируются; middleware маскирует поля `code`, `token`, `apiKey`, `authorization`.
+- **Состав (изменено 28 октября 2026, #25):** четыре контейнера без коллектора — Prometheus, Loki, Tempo, Grafana. Первоначально выбранный `grafana/otel-lgtm:0.38.1` (больше 1 ГБ) не поместился на диск Docker VM разработчика (свободно меньше 0,5 ГБ); те же Loki, Tempo и Grafana по отдельности меньше, а Prometheus, Loki и Grafana уже были скачаны. Версии Prometheus и Grafana взяты из локально доступных образов. Коллектор не нужен: Tempo и Loki принимают OTLP HTTP напрямую.
+- **Порты (localhost):** Grafana 3000 (анонимный просмотр без входа, только для локального PoC), Prometheus 9090, Loki 3100, Tempo 3200. Все порты compose переопределяются переменными `PORT_*`.
+- **Метрики:** отдельный listener `:9090` внутри сети compose (`METRICS_ADDR`): сбор не проходит через API, не пишет посещения и не попадает в HTTP-метрики. HTTP: `http_requests_total{method,route,code}`, `http_request_duration_seconds{method,route,code}`, `http_requests_in_flight`; `route` — шаблон `ServeMux` (`r.Pattern`), для несовпавших путей `unmatched`. БД: `db_query_duration_seconds{outcome}` (pgx tracer), `db_pool_*` (статистика pgxpool). Внешние вызовы: `external_calls_total{service,operation,outcome}` и `external_call_duration_seconds`; модель оборачивается декоратором `telemetry.Agent` (`service="model"`, `operation` = роль), для GitHub — хелпер `telemetry.External(ctx, "github", …)`. Посещаемость: `tutor_learners_total`, `tutor_learners_regularly_active` вычисляются на каждом scrape тем же `visits.Count`. ID учеников и курсов в labels не попадают.
+- **Трейсы:** спан на HTTP-запрос (ID трассы в заголовке ответа `X-Trace-Id`), спан фоновой операции — дочерний к запросу, который её запустил (после перезапуска сервиса — новая трасса), спан вызова модели — дочерний к операции. Ошибки помечаются статусом Error.
+- **Логи:** `slog` JSON в stdout и OTLP-экспорт в Loki через `otelslog`; в контексте спана запись несёт `trace_id` и `span_id`. Каждый запрос пишет строку `http request`, операция — `operation succeeded|failed`. В Grafana переход Tempo → Loki по `trace_id` и Loki → Tempo по полю `trace_id`.
+- **Loki и заполненный диск:** порог WAL поднят до 99% (`infra/observability/loki.yaml`), иначе при заполнении диска Docker VM больше 90% Loki перестаёт принимать записи. Только для локального запуска.
+- **Секреты:** обработчик логов заменяет значения атрибутов `code`, `token`, `apiKey`, `authorization`, `cookie`, `password`, `secret`, `session` на `[REDACTED]`; коды входа, токены и ключи в атрибуты спанов не пишутся. `make verify-observability` ищет код входа и хвост ключа API в Loki.
+- **Проверка:** `make verify-observability` перезапускает бэкенд с `OBSERVABILITY_TEST_ROUTES=1` (маршруты `/api/observability-test/status/{code}` и `/api/observability-test/slow` — только для этой проверки) и несуществующей моделью планировщика, чтобы получить настоящую ошибку внешнего вызова OpenAI, сверяет приращения в Prometheus, трассу в Tempo, логи в Loki по `trace_id` и данные каждой панели через datasource proxy Grafana, затем возвращает обычную конфигурацию.
 
 ## Codex app-server и модели
 

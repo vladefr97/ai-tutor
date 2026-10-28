@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/vladefr97/tutor-app/backend/internal/telemetry"
 	"github.com/vladefr97/tutor-app/backend/migrations"
 )
 
@@ -18,6 +19,7 @@ func Open(ctx context.Context, url, schema string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.ConnConfig.Tracer = telemetry.PGXTracer{}
 	if schema != "" {
 		cfg.ConnConfig.RuntimeParams["search_path"] = schema
 	}

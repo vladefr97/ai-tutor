@@ -33,3 +33,20 @@
 | Курс после одобрения | `plan_ready`, операция `succeeded` | так и есть, 43 с |
 
 Ветка «замечания → исправление → повторное ревью» в этом прогоне не возникла: ревьюер одобрил первую версию. Она проверена тестами на управляемых ответах (`make test-planning`), реальным прогоном — нет.
+
+## 2026-10-28. Метрики, трейсы и логи (#25)
+
+Стек из этой ревизии (отдельный compose-проект на смещённых портах), `scripts/verify-observability.py` с `OBSERVABILITY_TEST_ROUTES=1` и `MODEL_PLANNER=nonexistent-model-for-observability-check`.
+
+| Проверка | Ожидание | Факт |
+|---|---|---|
+| Приращения Prometheus: `GET /api/me` 200 / 401, тестовый маршрут 503 / 500 | 5 / 3 / 2 / 1 | 5 / 3 / 2 / 1 |
+| Медленный запрос 1,5 с в гистограмме | +0 в `le=1`, +1 в `le=2.5` | +0, +1 |
+| Реальная ошибка вызова модели (OpenAI: 404 model does not exist) | `external_calls_total{service="model",operation="planner",outcome="error"}` +1, операция failed | +1, failed |
+| Метки маршрутов | шаблоны без ID | без ID |
+| Трасса в Tempo по `X-Trace-Id` | `POST /api/courses` → `operation mentor_reply` → `model planner` (Error) | все три спана, модель с ошибкой |
+| Логи в Loki по `trace_id` | `http request` и `operation failed` | обе записи |
+| Секреты | код входа и хвост ключа API не находятся в Loki | не найдены |
+| Панели Grafana | 16 панелей метрик и панель логов возвращают данные через datasource proxy | все с данными |
+
+Не проверено: визуальный осмотр панелей человеком; скриншот не сохранён.

@@ -14,6 +14,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -35,6 +39,9 @@ type Op struct {
 	Stage    *string         `json:"stage"`
 	Input    json.RawMessage `json:"-"`
 	Error    *Error          `json:"error"`
+	// parent is the span of the request that started the operation in this
+	// process; the operation span continues that trace.
+	parent trace.SpanContext
 }
 
 func (o Op) Active() bool { return o.Status == "queued" || o.Status == "running" }
@@ -104,6 +111,7 @@ func (r *Runner) Start(ctx context.Context, tx pgx.Tx, courseID, kind string, in
 		row = r.DB.QueryRow(ctx, q, courseID, kind, in)
 	}
 	op, err := scan(row)
+	op.parent = trace.SpanContextFromContext(ctx)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return Op{}, ErrBusy
@@ -127,10 +135,13 @@ func (r *Runner) Launch(op Op) {
 }
 
 func (r *Runner) run(op Op) {
-	ctx, cancel := context.WithTimeout(context.Background(), r.Timeout)
+	ctx, cancel := context.WithTimeout(trace.ContextWithSpanContext(context.Background(), op.parent), r.Timeout)
 	defer cancel()
+	ctx, span := otel.Tracer("tutor-backend").Start(ctx, "operation "+op.Kind,
+		trace.WithAttributes(attribute.String("operation.id", op.ID), attribute.String("operation.kind", op.Kind)))
+	defer span.End()
 	if _, err := r.DB.Exec(ctx, `update operations set status = 'running', updated_at = now() where id = $1`, op.ID); err != nil {
-		slog.Error("operation start", "op", op.ID, "err", err)
+		slog.ErrorContext(ctx, "operation start", "op", op.ID, "err", err)
 		return
 	}
 	op.Status = "running"
@@ -153,14 +164,15 @@ func (r *Runner) run(op Op) {
 			if next == nil {
 				return nil
 			}
-			o, err := r.Start(context.Background(), tx, op.CourseID, next.Kind, next.Input)
+			o, err := r.Start(trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx)), tx, op.CourseID, next.Kind, next.Input)
 			nextOp = &o
 			return err
 		})
 		if err != nil {
-			slog.Error("operation finish", "op", op.ID, "err", err)
+			slog.ErrorContext(ctx, "operation finish", "op", op.ID, "err", err)
 			return
 		}
+		slog.InfoContext(ctx, "operation succeeded", "op", op.ID, "kind", op.Kind)
 		if nextOp != nil {
 			r.Launch(*nextOp)
 		}
@@ -168,10 +180,11 @@ func (r *Runner) run(op Op) {
 	}
 	f := &Failure{Code: "operation_failed", Message: "Не получилось. Попробуйте ещё раз."}
 	errors.As(err, &f)
-	slog.Error("operation failed", "op", op.ID, "kind", op.Kind, "err", err)
+	span.SetStatus(codes.Error, f.Code)
+	slog.ErrorContext(ctx, "operation failed", "op", op.ID, "kind", op.Kind, "err", err)
 	if _, err := r.DB.Exec(context.Background(), `update operations set status = 'failed', error_code = $2,
 		error_message = $3, updated_at = now() where id = $1`, op.ID, f.Code, f.Message); err != nil {
-		slog.Error("operation fail", "op", op.ID, "err", err)
+		slog.ErrorContext(ctx, "operation fail", "op", op.ID, "err", err)
 	}
 }
 
